@@ -29,6 +29,7 @@ def read_broker_transactions(
     schwab_transactions_file: Path | None,
     schwab_awards_transactions_file: Path | None,
     schwab_equity_award_json_transactions_file: Path | None,
+    schwab_transfers_file: Path | None,
     trading212_transactions_folder: Path | None,
     mssb_transactions_folder: Path | None,
     sharesight_transactions_folder: Path | None,
@@ -41,7 +42,7 @@ def read_broker_transactions(
 
     if schwab_transactions_file is not None:
         transactions += read_schwab_transactions(
-            schwab_transactions_file, schwab_awards_transactions_file
+            schwab_transactions_file, schwab_awards_transactions_file, schwab_transfers_file
         )
     else:
         LOGGER.debug("No Schwab file provided")

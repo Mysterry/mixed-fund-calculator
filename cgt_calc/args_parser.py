@@ -243,6 +243,13 @@ Environment variables:
         help="Charles Schwab Equity Awards transaction history in CSV format",
     )
     broker_group.add_argument(
+        "--schwab-transfer-file",
+        type=existing_file_type,
+        default=None,
+        metavar="PATH",
+        help="Annotated Charles Schwab transfer history in CSV format with origin/destination of transfers. Transfers out are either remitted to the UK or used overseas (default: all transfers are remitted to the UK), transfers in are either from UK taxed sources or not (default: all transfers are from UK taxed sources)",
+    )
+    broker_group.add_argument(
         "--schwab-award",
         action=DeprecatedAction,
         dest="schwab_award_file",
@@ -342,6 +349,22 @@ Environment variables:
         metavar="PATH",
         default=DEFAULT_SPIN_OFF_FILE,
         help="spin-offs data in CSV format (default: %(default)s)",
+    )
+
+    data_group.add_argument(
+        "--remittance-basis-file",
+        type=optional_file_type,
+        metavar="PATH",
+        default=None,
+        help="historical indicator of tax years filed on remittance basis (default: all years are declared on arising basis)",
+    )
+
+    data_group.add_argument(
+        "--owr-file",
+        type=optional_file_type,
+        metavar="PATH",
+        default=None,
+        help="historical data of OWR of RSU awards (default: all awards are 100% UK taxed)",
     )
 
     # Calculation Options

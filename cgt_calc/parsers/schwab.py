@@ -25,6 +25,7 @@ if TYPE_CHECKING:
 
 OLD_COLUMNS_NUM: Final = 9
 NEW_COLUMNS_NUM: Final = 8
+TRANSFER_COLUMNS_NUM: Final = 6
 LOGGER = logging.getLogger(__name__)
 
 # Cancel Buy search window: Arbitrary time window chosen as a sensible limit for
@@ -54,27 +55,15 @@ class AwardsTransactionsFileRequiredHeaders(str, Enum):
     FAIR_MARKET_VALUE_PRICE = "FairMarketValuePrice"
 
 
-@dataclass
-class AwardPrices:
-    """Class to store initial stock prices."""
+class SchwabTransfersFileRequiredHeaders(str, Enum):
+    """Enum to list the headers in transfers file that we will use."""
 
-    award_prices: dict[datetime.date, dict[str, Decimal]]
-
-    def get(self, date: datetime.date, symbol: str) -> tuple[datetime.date, Decimal]:
-        """Get initial stock price at given date."""
-        # Award dates may go back for few days, depending on
-        # holidays or weekends, so we do a linear search
-        # in the past to find the award price
-        symbol = TICKER_RENAMES.get(symbol, symbol)
-        for i in range(7):
-            to_search = date - datetime.timedelta(days=i)
-
-            if (
-                to_search in self.award_prices
-                and symbol in self.award_prices[to_search]
-            ):
-                return (to_search, self.award_prices[to_search][symbol])
-        raise KeyError(f"Award price is not found for symbol {symbol} for date {date}")
+    DATE = "Date"
+    ACTION = "Action"
+    DESCRIPTION = "Description"
+    AMOUNT = "Amount"
+    DESTINATION = "Destination (transfer out)"
+    ORIGIN = "Origin (transfer in)"
 
 
 def action_from_str(label: str, file: Path) -> ActionType:
@@ -82,8 +71,17 @@ def action_from_str(label: str, file: Path) -> ActionType:
     if label in ["Buy", "Cancel Buy"]:
         return ActionType.BUY
 
+    if label == "Buy to Open":
+        return ActionType.BUY_OPTION
+
     if label == "Sell":
         return ActionType.SELL
+
+    if label == "Sell to Close":
+        return ActionType.SELL_OPTION
+
+    if label in ["Journal", "Cash/Stock Merger"]:
+        return ActionType.BOOKKEEPING
 
     if label in [
         "MoneyLink Transfer",
@@ -92,7 +90,6 @@ def action_from_str(label: str, file: Path) -> ActionType:
         "Wire Funds",
         "Wire Sent",
         "Funds Received",
-        "Journal",
         "Cash In Lieu",
         "Visa Purchase",
         "MoneyLink Deposit",
@@ -114,7 +111,10 @@ def action_from_str(label: str, file: Path) -> ActionType:
     ]:
         return ActionType.DIVIDEND
 
-    if label in ["NRA Tax Adj", "NRA Withholding", "Foreign Tax Paid"]:
+    if label == "NRA Tax Adj":
+        return ActionType.NRA_TAX_ADJ
+
+    if label in ["NRA Withholding", "Foreign Tax Paid"]:
         return ActionType.DIVIDEND_TAX
 
     if label == "ADR Mgmt Fee":
@@ -138,11 +138,14 @@ def action_from_str(label: str, file: Path) -> ActionType:
     if label == "Reinvest Dividend":
         return ActionType.REINVEST_DIVIDENDS
 
-    if label == "Wire Funds Received":
+    if label in ["Wire Funds Received", "Wire Received"]:
         return ActionType.WIRE_FUNDS_RECEIVED
 
     if label == "Stock Split":
         return ActionType.STOCK_SPLIT
+
+    if label ==  "Reverse Split":
+        return ActionType.STOCK_REVERSE_SPLIT
 
     if label in ["Cash Merger", "Cash Merger Adj"]:
         return ActionType.CASH_MERGER
@@ -150,7 +153,136 @@ def action_from_str(label: str, file: Path) -> ActionType:
     if label in ["Full Redemption", "Full Redemption Adj"]:
         return ActionType.FULL_REDEMPTION
 
+    if label == "Expired":
+        return ActionType.EXPIRATION
     raise ParsingError(file, f"Unknown action: '{label}'")
+
+
+@dataclass
+class AwardPrices:
+    """Class to store initial stock prices."""
+
+    award_prices: dict[datetime.date, dict[str, Decimal]]
+
+    def get(self, date: datetime.date, symbol: str) -> tuple[datetime.date, Decimal]:
+        """Get initial stock price at given date."""
+        # Award dates may go back for few days, depending on
+        # holidays or weekends, so we do a linear search
+        # in the past to find the award price
+        symbol = TICKER_RENAMES.get(symbol, symbol)
+        for i in range(7):
+            to_search = date - datetime.timedelta(days=i)
+
+            if (
+                to_search in self.award_prices
+                and symbol in self.award_prices[to_search]
+            ):
+                return (to_search, self.award_prices[to_search][symbol])
+        raise KeyError(f"Award price is not found for symbol {symbol} for date {date}")
+
+
+@dataclass
+class SchwabTransfer(BrokerTransaction):
+    """Represent single Schwab transfer."""
+
+    def __init__(
+        self,
+        row_dict: OrderedDict[str, str],
+        file: Path,
+    ):
+        """Create transfer from CSV row."""
+        if len(row_dict) < TRANSFER_COLUMNS_NUM or len(row_dict) > TRANSFER_COLUMNS_NUM:
+            raise UnexpectedColumnCountError(
+                list(row_dict.values()), TRANSFER_COLUMNS_NUM, file
+            )
+        as_of_str = " as of "
+        date_header = SchwabTransfersFileRequiredHeaders.DATE.value
+        if as_of_str in row_dict[date_header]:
+            index = row_dict[date_header].find(as_of_str)
+            date_str = row_dict[date_header][:index]
+        else:
+            date_str = row_dict[date_header]
+        try:
+            date = datetime.datetime.strptime(date_str, "%m/%d/%Y").date()
+        except ValueError as exc:
+            raise ParsingError(
+                file, f"Invalid date format: {date_str} from row: {row_dict}"
+            ) from exc
+        action_header = SchwabTransfersFileRequiredHeaders.ACTION.value
+        self.raw_action = row_dict[action_header]
+        action = action_from_str(self.raw_action, file)
+        description_header = SchwabTransfersFileRequiredHeaders.DESCRIPTION.value
+        description = row_dict[description_header]
+        amount_header = SchwabTransfersFileRequiredHeaders.AMOUNT.value
+        amount = (
+            Decimal(row_dict[amount_header].replace("$", ""))
+            if row_dict[amount_header] != ""
+            else None
+        )
+        destination_header = SchwabTransfersFileRequiredHeaders.DESTINATION.value
+        destination = row_dict[destination_header] if row_dict[destination_header] != "" else None
+        origin_header = SchwabTransfersFileRequiredHeaders.ORIGIN.value
+        origin = row_dict[origin_header] if row_dict[origin_header] != "" else None
+
+        try:
+            assert action in [ActionType.TRANSFER, ActionType.WIRE_FUNDS_RECEIVED]
+        except AssertionError as err:
+            raise ParsingError(
+                file,
+                f"Transfers file contains a non-transfer action transaction {self.raw_action}"
+            ) from err
+        try:
+            assert (action != ActionType.TRANSFER or (destination in ["UK", "Overseas"]))
+        except AssertionError as err:
+            raise ParsingError(
+                file,
+                f"Transfers file contains a transfer-out action transaction whose destination is not UK or Overseas: {destination}"
+            ) from err
+        try:
+            assert (action != ActionType.WIRE_FUNDS_RECEIVED or (origin in ["UK taxed", "Not UK taxed"]))
+        except AssertionError as err:
+            raise ParsingError(
+                file,
+                f"Transfers file contains a transfer-in action transaction whose origin is not UK taxed or Not UK taxed: {origin}"
+            ) from err
+        try:
+            assert (not origin and destination) or (origin and not destination)
+        except AssertionError as err:
+            raise ParsingError(
+                file,
+                f"Transfers file contains a transfer action transaction with both origin: {origin} and destination: {destination}",
+            ) from err
+
+        currency = "USD"
+        broker = "Charles Schwab"
+        super().__init__(
+            date,
+            action,
+            None,
+            description,
+            None,
+            None,
+            None,
+            amount,
+            currency,
+            broker,
+            None,
+            destination,
+            origin
+        )
+
+    @staticmethod
+    def create(
+        row_dict: OrderedDict[str, str], file: Path,
+    ) -> SchwabTransfer:
+        """Create and post process a SchwabTransfer"""
+        from decimal import InvalidOperation
+        try:
+            transfer = SchwabTransfer(row_dict, file)
+        except InvalidOperation:
+            print(row_dict)
+
+        return transfer
 
 
 class SchwabTransaction(BrokerTransaction):
@@ -231,12 +363,17 @@ class SchwabTransaction(BrokerTransaction):
             broker,
         )
 
+
     @staticmethod
     def create(
-        row_dict: OrderedDict[str, str], file: Path, awards_prices: AwardPrices
+        row_dict: OrderedDict[str, str], file: Path, awards_prices: AwardPrices, transfers: list[SchwabTransfer]
     ) -> SchwabTransaction:
         """Create and post process a SchwabTransaction."""
-        transaction = SchwabTransaction(row_dict, file)
+        from decimal import InvalidOperation
+        try:
+            transaction = SchwabTransaction(row_dict, file)
+        except InvalidOperation:
+            print(row_dict)
         if (
             transaction.price is None
             and transaction.action == ActionType.STOCK_ACTIVITY
@@ -249,7 +386,17 @@ class SchwabTransaction(BrokerTransaction):
             # We want to make sure to match date and price form the awards
             # spreadsheet.
             _vest_date, transaction.price = awards_prices.get(transaction.date, symbol)
+        if transaction.action in [ActionType.TRANSFER, ActionType.WIRE_FUNDS_RECEIVED]:
+            # If a file is provided with transfer annotation, load the data by matching the date/type/amount/descr of the row
+            for transfer in transfers:
+                if transfer.date == transaction.date and transfer.action == transaction.action \
+                    and transfer.description == transaction.description and transfer.amount == transaction.amount:
+                    transaction.origin = transfer.origin
+                    transaction.destination = transfer.destination
+
         return transaction
+
+
 
 
 def _combine_cash_merger_pair(
@@ -522,10 +669,12 @@ def _filter_cancelled_buy_transactions(
 
 
 def read_schwab_transactions(
-    transactions_file: Path, schwab_award_transactions_file: Path | None
+    transactions_file: Path, schwab_award_transactions_file: Path | None, schwab_transfers_file: Path | None
 ) -> list[BrokerTransaction]:
     """Read Schwab transactions from file."""
     awards_prices = _read_schwab_awards(schwab_award_transactions_file)
+
+    transfers = _read_schwab_transfers(schwab_transfers_file)
 
     with transactions_file.open(encoding="utf-8") as csv_file:
         print(f"Parsing {transactions_file}...")
@@ -553,6 +702,7 @@ def read_schwab_transactions(
             OrderedDict(zip(headers, row, strict=True)),
             transactions_file,
             awards_prices,
+            transfers
         )
         for row in lines
         if any(row)
@@ -635,3 +785,45 @@ def _read_schwab_awards(
             symbol = TICKER_RENAMES.get(symbol, symbol)
             initial_prices[date][symbol] = price
     return AwardPrices(award_prices=dict(initial_prices))
+
+
+def _read_schwab_transfers(
+    transfers_file: Path,
+) -> list[SchwabTransfer]:
+    """Read Schwab transfers from file."""
+
+    if transfers_file is None:
+        LOGGER.warning("No Schwab transaction file provided")
+        return []
+
+    with transfers_file.open(encoding="utf-8") as csv_file:
+        print(f"Parsing {transfers_file}...")
+        lines = list(csv.reader(csv_file))
+    if not lines:
+        raise ParsingError(
+            transfers_file, "Charles Schwab transfers CSV file is empty"
+        )
+    headers = lines[0]
+
+    required_headers = set(
+        {header.value for header in SchwabTransfersFileRequiredHeaders}
+    )
+    if not required_headers.issubset(headers):
+        raise ParsingError(
+            transfers_file,
+            "Missing columns in Schwab transfers file: "
+            f"{required_headers.difference(headers)}",
+        )
+
+    # Remove header
+    lines = lines[1:]
+    transfers = [
+        SchwabTransfer.create(
+            OrderedDict(zip(headers, row, strict=True)),
+            transfers_file,
+        )
+        for row in lines
+        if any(row)
+    ]
+    transfers.reverse()
+    return list(transfers)

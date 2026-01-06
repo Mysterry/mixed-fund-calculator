@@ -11,6 +11,7 @@ import logging
 import sys
 from typing import TYPE_CHECKING
 
+from cgt_calc.parsers.remittance import OWREvents, TaxFilings
 from . import render_latex
 from .args_parser import create_parser
 from .const import (
@@ -60,6 +61,7 @@ from .model import (
     SpinOff,
 )
 from .parsers import read_broker_transactions
+from .parsers.remittance import read_remittance_basis, read_owr
 from .setup_logging import setup_logging
 from .spin_off_handler import SpinOffHandler
 from .transaction_log import add_to_list, has_key
@@ -153,6 +155,8 @@ class CapitalGainsCalculator:
         spin_off_handler: SpinOffHandler,
         initial_prices: InitialPrices,
         interest_fund_tickers: list[str],
+        tax_filings: TaxFilings,
+        owr_events: OWREvents,
         balance_check: bool = True,
         calc_unrealized_gains: bool = False,
     ):
@@ -170,6 +174,8 @@ class CapitalGainsCalculator:
         self.balance_check = balance_check
         self.calc_unrealized_gains = calc_unrealized_gains
         self.interest_fund_tickers = interest_fund_tickers
+        self.tax_filings = tax_filings
+        self.owr_events = owr_events
         self.total_uk_interest = Decimal(0)
         self.total_foreign_interest = Decimal(0)
 
@@ -250,8 +256,8 @@ class CapitalGainsCalculator:
             transaction.date,
             symbol,
             quantity,
-            self.currency_converter.to_gbp_for(amount, transaction),
-            self.currency_converter.to_gbp_for(transaction.fees, transaction),
+            self.currency_converter.to_gbp_for(amount, transaction, LOGGER),
+            self.currency_converter.to_gbp_for(transaction.fees, transaction, LOGGER),
         )
 
     def handle_spin_off(
@@ -383,8 +389,8 @@ class CapitalGainsCalculator:
             transaction.date,
             symbol,
             quantity,
-            self.currency_converter.to_gbp_for(amount, transaction),
-            self.currency_converter.to_gbp_for(transaction.fees, transaction),
+            self.currency_converter.to_gbp_for(amount, transaction, LOGGER),
+            self.currency_converter.to_gbp_for(transaction.fees, transaction, LOGGER),
         )
 
     def add_eri(
@@ -454,6 +460,7 @@ class CapitalGainsCalculator:
         price = self.currency_converter.to_gbp_for(
             transaction.price,
             transaction,
+            LOGGER
         )
 
         symbols = self.isin_converter.get_symbols(transaction.isin)
@@ -505,10 +512,21 @@ class CapitalGainsCalculator:
                 )  # dummy value, this will get filtered out
                 continue
             new_balance = balance[(transaction.broker, transaction.currency)]
+            if transaction.action in [
+                ActionType.BUY_OPTION,
+                ActionType.SELL_OPTION,
+                ActionType.EXPIRATION
+            ]:
+                transaction.quantity = 100 * transaction.quantity
+            if transaction.action ==ActionType.EXPIRATION:
+                transaction.quantity = -transaction.quantity
+                transaction.amount = 0
+                transaction.price = 0
             if transaction.action is ActionType.TRANSFER:
                 new_balance += get_amount_or_fail(transaction)
             elif transaction.action in [
                 ActionType.BUY,
+                ActionType.BUY_OPTION,
                 ActionType.REINVEST_SHARES,
             ]:
                 new_balance += get_amount_or_fail(transaction)
@@ -517,13 +535,15 @@ class CapitalGainsCalculator:
                 ActionType.SELL,
                 ActionType.CASH_MERGER,
                 ActionType.FULL_REDEMPTION,
+                ActionType.SELL_OPTION,
+                ActionType.EXPIRATION
             ]:
                 amount = get_amount_or_fail(transaction)
                 new_balance += amount
                 self.add_disposal(transaction)
                 if self.date_in_tax_year(transaction.date):
                     total_disposal_proceeds += self.currency_converter.to_gbp_for(
-                        amount + transaction.fees, transaction
+                        amount + transaction.fees, transaction, LOGGER
                     )
             elif transaction.action is ActionType.FEE:
                 amount = get_amount_or_fail(transaction)
@@ -531,7 +551,7 @@ class CapitalGainsCalculator:
                 transaction.fees = -amount
                 transaction.quantity = Decimal(0)
                 gbp_fees = self.currency_converter.to_gbp_for(
-                    transaction.fees, transaction
+                    transaction.fees, transaction, LOGGER
                 )
                 symbol = get_symbol_or_fail(transaction)
                 add_to_list(
@@ -557,6 +577,29 @@ class CapitalGainsCalculator:
                 multiplier = (acquired_quantity + holding_quantity) / holding_quantity
                 self.split_list[(symbol, transaction.date)] = multiplier
                 self.add_acquisition(transaction)
+            elif transaction.action in [
+                    ActionType.STOCK_REVERSE_SPLIT,
+                ]:
+                # Assumes a reverse split where fractional shares are awarded to round to next whole share
+                # Assumes a bookkeeping transaction with -N transaction & a positive transaction CEILING(N/30)
+
+                if transaction.quantity < 0:
+                    # This is the bookkeeping transaction
+                    pass
+                else:
+                    new_quantity = get_quantity_or_fail(transaction)
+                    symbol = get_symbol_or_fail(transaction)
+                    holding_quantity = self.portfolio[symbol].quantity
+                    multiplier = new_quantity / holding_quantity
+                    self.split_list[(symbol, transaction.date)] = multiplier
+
+                    disposed_quantity = holding_quantity - new_quantity
+                    transaction.quantity = disposed_quantity
+                    transaction.price = 0
+                    transaction.amount = 0
+                    self.add_disposal(transaction)
+
+
             elif transaction.action in [ActionType.DIVIDEND, ActionType.CAPITAL_GAIN]:
                 amount = get_amount_or_fail(transaction)
                 symbol = get_symbol_or_fail(transaction)
@@ -567,7 +610,7 @@ class CapitalGainsCalculator:
                 )
                 if self.date_in_tax_year(transaction.date):
                     dividends[(symbol, currency)] += amount
-            elif transaction.action is ActionType.DIVIDEND_TAX:
+            elif transaction.action is ActionType.NRA_TAX_ADJ and transaction.symbol:
                 amount = get_amount_or_fail(transaction)
                 symbol = get_symbol_or_fail(transaction)
                 currency = transaction.currency
@@ -580,7 +623,7 @@ class CapitalGainsCalculator:
             elif transaction.action is ActionType.ADJUSTMENT:
                 amount = get_amount_or_fail(transaction)
                 new_balance += amount
-            elif transaction.action is ActionType.INTEREST:
+            elif transaction.action == ActionType.INTEREST or transaction.action == ActionType.NRA_TAX_ADJ and transaction.symbol is None:
                 amount = get_amount_or_fail(transaction)
                 new_balance += amount
                 self.interest_list[
@@ -593,6 +636,8 @@ class CapitalGainsCalculator:
                 new_balance += amount
             elif transaction.action is ActionType.REINVEST_DIVIDENDS:
                 LOGGER.warning("Ignoring unsupported action: %s", transaction.action)
+            elif transaction.action == ActionType.BOOKKEEPING:
+                pass
             else:
                 raise InvalidTransactionError(
                     transaction, f"Action not processed({transaction.action})"
@@ -670,6 +715,9 @@ class CapitalGainsCalculator:
         bnb_acquisition = HmrcTransactionData()
         bed_and_breakfast_fees = Decimal(0)
 
+        if acquisition matches an OWR event:
+            update the mixed fund status
+
         if acquisition.quantity > 0 and has_key(self.bnb_list, date_index, symbol):
             acquisition_price = acquisition.amount / acquisition.quantity
             bnb_acquisition = self.bnb_list[date_index][symbol]
@@ -695,6 +743,17 @@ class CapitalGainsCalculator:
         self.portfolio[symbol] += Position(
             acquisition.quantity,
             modified_amount,
+        )
+        LOGGER.debug(
+            "Acquisition on %s of %s: quantity %d for cost £%.2f (£%.2f per share). Section 104: quantity %d for total cost: £%.2f (£%.2f per share)",
+            date_index,
+            symbol,
+            acquisition.quantity,
+            acquisition.amount,
+            acquisition.amount / acquisition.quantity,
+            self.portfolio[symbol].quantity,
+            self.portfolio[symbol].amount,
+            self.portfolio[symbol].amount / self.portfolio[symbol].quantity
         )
         if (
             acquisition.quantity - bnb_acquisition.quantity > 0
@@ -792,11 +851,14 @@ class CapitalGainsCalculator:
                 same_day_gain = same_day_proceeds - same_day_allowable_cost
                 chargeable_gain += same_day_gain
                 LOGGER.debug(
-                    "SAME DAY, quantity %d, gain %s, disposal price %s, "
-                    "acquisition price %s",
+                    "Disposal SAME DAY on %s of %s: quantity %d for proceeds £%.2f (disposal price: £%.2f per share). Generated gain £%.2f as same day cost was £%.2f (£%.2f per share) ",
+                    date_index,
+                    symbol,
                     available_quantity,
-                    same_day_gain,
+                    same_day_proceeds,
                     disposal_price,
+                    same_day_gain,
+                    same_day_allowable_cost,
                     acquisition_price,
                 )
                 disposal_quantity -= available_quantity
@@ -936,11 +998,14 @@ class CapitalGainsCalculator:
                     )
                     chargeable_gain += bed_and_breakfast_gain
                     LOGGER.debug(
-                        "BED & BREAKFAST, quantity %d, gain %s, disposal price %s, "
-                        "acquisition price %s%s",
+                        "Disposal BED & BREAKFAST on %s of %s: quantity %d for proceeds £%.2f (disposal price: £%.2f per share). Generated gain £%.2f as B&B cost was £%.2f (£%.2f per share) %s",
+                        date_index,
+                        symbol,
                         available_quantity,
-                        bed_and_breakfast_gain,
+                        bed_and_breakfast_proceeds,
                         disposal_price,
+                        bed_and_breakfast_gain,
+                        bed_and_breakfast_allowable_cost,
                         acquisition_price,
                         f", added_excess_income: {total_dist_amount}"
                         if total_dist_amount > 0
@@ -992,12 +1057,15 @@ class CapitalGainsCalculator:
             r104_gain = r104_proceeds - r104_allowable_cost
             chargeable_gain += r104_gain
             LOGGER.debug(
-                "SECTION 104, quantity %d, gain %s, proceeds amount %s, "
-                "allowable cost %s",
+                "Disposal SECTION 104 on %s of %s: quantity %d for proceeds £%.2f (disposal price: £%.2f per share). Generated gain £%.2f as section 104 cost was £%.2f (£%.2f per share)",
+                date_index,
+                symbol,
                 available_quantity,
-                r104_gain,
                 r104_proceeds,
+                disposal_price,
+                r104_gain,
                 r104_allowable_cost,
+                acquisition_price,
             )
             disposal_quantity -= available_quantity
             proceeds_amount -= available_quantity * disposal_price
@@ -1028,6 +1096,10 @@ class CapitalGainsCalculator:
         )
         self.portfolio[symbol] = Position(current_quantity, current_amount)
         chargeable_gain = round_decimal(chargeable_gain, 2)
+
+        if disposal:
+            update the mixed fund status (add gains)
+
         return (
             chargeable_gain,
             calculation_entries,
@@ -1117,7 +1189,7 @@ class CapitalGainsCalculator:
 
         for (broker, currency, date), foreign_amount in monthly_interests.items():
             gbp_amount = self.currency_converter.to_gbp(
-                foreign_amount.amount, foreign_amount.currency, date
+                foreign_amount.amount, foreign_amount.currency, date, LOGGER
             )
             if foreign_amount.currency == UK_CURRENCY:
                 self.total_uk_interest += gbp_amount
@@ -1183,10 +1255,10 @@ class CapitalGainsCalculator:
                             treaty = None
 
             amount = self.currency_converter.to_gbp(
-                foreign_amount.amount, foreign_amount.currency, date
+                foreign_amount.amount, foreign_amount.currency, date, LOGGER
             )
             tax_amount = self.currency_converter.to_gbp(
-                tax.amount, foreign_amount.currency, date
+                tax.amount, foreign_amount.currency, date, LOGGER
             )
 
             if self.date_in_tax_year(date):
@@ -1222,6 +1294,7 @@ class CapitalGainsCalculator:
         tax_year_start_index = self.tax_year_start_date
         end_index = self.tax_year_end_date
         disposal_count = 0
+        disposed_symbols = set()
         disposal_proceeds = Decimal(0)
         allowable_costs = Decimal(0)
         capital_gain = Decimal(0)
@@ -1256,6 +1329,7 @@ class CapitalGainsCalculator:
                     )
                     if date_index >= tax_year_start_index:
                         disposal_count += 1
+                        disposed_symbols.add(symbol)
                         transaction_amount = self.disposal_list[date_index][
                             symbol
                         ].amount
@@ -1271,7 +1345,7 @@ class CapitalGainsCalculator:
                             symbol
                         ].quantity
                         LOGGER.debug(
-                            "DISPOSAL on %s of %s, quantity %d, capital gain $%s",
+                            "[TAX YEAR CGT EVENT] Disposal on %s of %s, quantity %d leads to capital gain £%s",
                             date_index,
                             symbol,
                             transaction_quantity,
@@ -1366,6 +1440,7 @@ class CapitalGainsCalculator:
                 for symbol, position in self.portfolio.items()
             ],
             disposal_count,
+            disposed_symbols,
             round_decimal(disposal_proceeds, 2),
             round_decimal(allowable_costs, 2),
             round_decimal(capital_gain, 2),
@@ -1410,6 +1485,7 @@ def calculate_cgt(args: argparse.Namespace) -> None:
         schwab_transactions_file=args.schwab_file,
         schwab_awards_transactions_file=args.schwab_award_file,
         schwab_equity_award_json_transactions_file=args.schwab_equity_award_json,
+        schwab_transfers_file=args.schwab_transfer_file,
         trading212_transactions_folder=args.trading212_dir,
         mssb_transactions_folder=args.mssb_dir,
         sharesight_transactions_folder=args.sharesight_dir,
@@ -1422,6 +1498,8 @@ def calculate_cgt(args: argparse.Namespace) -> None:
     initial_prices = InitialPrices(args.initial_prices_file)
     spin_off_handler = SpinOffHandler(args.spin_offs_file)
     isin_converter = IsinConverter(args.isin_translation_file)
+    tax_filings = read_remittance_basis(args.remittance_basis_file)
+    owr_events = read_owr(args.owr_file)
 
     calculator = CapitalGainsCalculator(
         args.year,
@@ -1431,8 +1509,11 @@ def calculate_cgt(args: argparse.Namespace) -> None:
         spin_off_handler,
         initial_prices,
         args.interest_fund_tickers,
+        tax_filings,
+        owr_events,
         balance_check=args.balance_check,
         calc_unrealized_gains=args.calc_unrealized_gains,
+
     )
     # First pass converts broker transactions to HMRC transactions.
     # This means applying same day rule and collapsing all transactions with

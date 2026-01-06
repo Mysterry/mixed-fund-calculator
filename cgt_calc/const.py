@@ -74,6 +74,9 @@ ERI_TAX_DATE_DELTA: Final = relativedelta(months=6)
 
 TICKER_RENAMES: Final[dict[str, str]] = {
     "FB": "META",
+    "WISH": "LOGC",
+    "21077C107": "LOGC",
+    "21077C305": "LOGC"
 }
 
 

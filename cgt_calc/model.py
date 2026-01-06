@@ -152,9 +152,15 @@ class ActionType(Enum):
     REINVEST_DIVIDENDS = 13
     WIRE_FUNDS_RECEIVED = 14
     STOCK_SPLIT = 15
-    CASH_MERGER = 16
-    EXCESS_REPORTED_INCOME = 17
-    FULL_REDEMPTION = 18
+    STOCK_REVERSE_SPLIT = 16
+    CASH_MERGER = 17
+    EXCESS_REPORTED_INCOME = 18
+    FULL_REDEMPTION = 19
+    EXPIRATION = 20
+    BUY_OPTION = 21
+    SELL_OPTION = 22
+    NRA_TAX_ADJ = 23
+    BOOKKEEPING = 24
 
 
 class CalculationType(Enum):
@@ -179,6 +185,8 @@ class BrokerTransaction:
     currency: str
     broker: str
     isin: str | None = None
+    destination: str | None = None
+    origin: str | None = None
 
 
 class RuleType(Enum):
@@ -341,8 +349,8 @@ class PortfolioEntry:
     def __str__(self) -> str:
         """Return string representation."""
         return (
-            f"  {self.symbol}: {round_decimal(self.quantity, 2)}, "
-            f"£{round_decimal(self.amount, 2)}"
+            f"  {self.symbol}: quantity: {round_decimal(self.quantity, 2)}, "
+            f"cost: £{round_decimal(self.amount, 2)}"
         )
 
 
@@ -353,6 +361,7 @@ class CapitalGainsReport:
     tax_year: int
     portfolio: list[PortfolioEntry]
     disposal_count: int
+    disposed_symbols: set[str]
     disposal_proceeds: Decimal
     allowable_costs: Decimal
     capital_gain: Decimal
@@ -473,6 +482,7 @@ class CapitalGainsReport:
                 out += f"(included as {dist_type})\n"
 
         out += f"Number of disposals: {self.disposal_count}\n"
+        out += f"Disposed securities: {self.disposed_symbols}\n"
         out += f"Disposal proceeds: £{self.disposal_proceeds}\n"
         out += f"Allowable costs: £{self.allowable_costs}\n"
         out += f"Capital gain: £{self.capital_gain}\n"

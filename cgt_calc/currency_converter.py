@@ -6,10 +6,12 @@ from collections import defaultdict
 import csv
 import datetime
 from decimal import Decimal, InvalidOperation
+from logging import Logger
 from typing import TYPE_CHECKING, Final
 
 from defusedxml import ElementTree as ET
 import requests
+import logging
 
 from .const import CGT_TEST_MODE
 from .dates import is_date
@@ -187,21 +189,31 @@ class CurrencyConverter:
         self.cache[date] = rates
         self._write_exchange_rates_file(self.exchange_rates_file, self.cache)
 
-    def currency_to_gbp_rate(self, currency: str, date: datetime.date) -> Decimal:
+    def currency_to_gbp_rate(self, currency: str, date: datetime.date, logger: Logger | None = None) -> Decimal:
         """Get GBP/currency rate at given date."""
         assert is_date(date)
         if date not in self.cache:
             self._query_hmrc_api(date)
         if currency not in self.cache[date]:
             raise ExchangeRateMissingError(currency, date)
-        return self.cache[date][currency]
 
-    def to_gbp(self, amount: Decimal, currency: str, date: datetime.date) -> Decimal:
+        rate = self.cache[date][currency]
+
+        if logger:
+            logger.debug(
+                "Fetched conversion rate of %s to GBP as of date %s: %.4f ",
+                currency,
+                date,
+                rate
+            )
+        return rate
+
+    def to_gbp(self, amount: Decimal, currency: str, date: datetime.date, logger: Logger | None = None) -> Decimal:
         """Convert amount from given currency to GBP."""
         if currency == "GBP":
             return amount
-        return amount / self.currency_to_gbp_rate(currency.upper(), date)
+        return amount / self.currency_to_gbp_rate(currency.upper(), date, logger)
 
-    def to_gbp_for(self, amount: Decimal, transaction: BrokerTransaction) -> Decimal:
+    def to_gbp_for(self, amount: Decimal, transaction: BrokerTransaction, logger: Logger | None = None) -> Decimal:
         """Convert amount from transaction currency to GBP."""
-        return self.to_gbp(amount, transaction.currency, transaction.date)
+        return self.to_gbp(amount, transaction.currency, transaction.date, logger)
