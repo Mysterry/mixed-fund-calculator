@@ -55,6 +55,7 @@ from .model import (
     ForeignCurrencyAmount,
     HmrcTransactionData,
     HmrcTransactionLog,
+    MixedFundTransactionLog,
     PortfolioEntry,
     Position,
     RuleType,
@@ -200,6 +201,8 @@ class CapitalGainsCalculator:
             lambda: defaultdict(ExcessReportedIncomeDistribution)
         )
 
+        self.mixed_fund_changes_list: MixedFundTransactionLog = {}
+
     def date_in_tax_year(self, date: datetime.date) -> bool:
         """Check if date is within current tax year."""
         assert is_date(date)
@@ -228,6 +231,7 @@ class CapitalGainsCalculator:
             if price is None:
                 price = self.initial_prices.get(transaction.date, symbol)
             amount = round_decimal(quantity * price, 2)
+            if
         elif transaction.action is ActionType.SPIN_OFF:
             price, amount = self.handle_spin_off(transaction)
         elif transaction.action is ActionType.STOCK_SPLIT:
@@ -500,6 +504,7 @@ class CapitalGainsCalculator:
         interests: dict[tuple[str, str], Decimal] = defaultdict(Decimal)
         total_disposal_proceeds = Decimal(0)
         balance_history: list[Decimal] = []
+        #mixed_fund_state_changes = dict[str, MixedFundStateChange]
 
         for transaction in transactions:
             self.isin_converter.add_from_transaction(transaction)
@@ -715,8 +720,8 @@ class CapitalGainsCalculator:
         bnb_acquisition = HmrcTransactionData()
         bed_and_breakfast_fees = Decimal(0)
 
-        if acquisition matches an OWR event:
-            update the mixed fund status
+        # if acquisition matches an OWR event:
+        #     update the mixed fund status
 
         if acquisition.quantity > 0 and has_key(self.bnb_list, date_index, symbol):
             acquisition_price = acquisition.amount / acquisition.quantity
@@ -1097,8 +1102,8 @@ class CapitalGainsCalculator:
         self.portfolio[symbol] = Position(current_quantity, current_amount)
         chargeable_gain = round_decimal(chargeable_gain, 2)
 
-        if disposal:
-            update the mixed fund status (add gains)
+        # if disposal:
+        #     update the mixed fund status (add gains)
 
         return (
             chargeable_gain,
@@ -1156,6 +1161,55 @@ class CapitalGainsCalculator:
             allowable_cost=allowable_cost,
             eris=[eri],
         )
+
+    # def process_interest(self): -> None:
+    #     """Process a single interest event at a time
+    #     """
+    #     monthly_interests: dict[
+    #         tuple[str, str, datetime.date], ForeignCurrencyAmount
+    #     ] = defaultdict(ForeignCurrencyAmount)
+    #     last_date: datetime.date = datetime.date.min
+    #     last_broker: str | None = None
+    #     last_currency: str | None = None
+    #
+    #     for (broker, currency, date), foreign_amount in sorted(
+    #         self.interest_list.items()
+    #     ):
+    #         if self.date_in_tax_year(date):
+    #             if (
+    #                 broker == last_broker
+    #                 and date.month == last_date.month
+    #                 and currency == last_currency
+    #             ):
+    #                 monthly_interests[(broker, currency, date)] = monthly_interests.pop(
+    #                     (broker, currency, last_date)
+    #                 )
+    #             monthly_interests[(broker, currency, date)] += foreign_amount
+    #             last_date = date
+    #             last_broker = broker
+    #             last_currency = currency
+    #
+    #     for (broker, currency, date), foreign_amount in monthly_interests.items():
+    #         gbp_amount = self.currency_converter.to_gbp(
+    #             foreign_amount.amount, foreign_amount.currency, date, LOGGER
+    #         )
+    #         if foreign_amount.currency == UK_CURRENCY:
+    #             self.total_uk_interest += gbp_amount
+    #             rule_prefix = "interestUK"
+    #         else:
+    #             self.total_foreign_interest += gbp_amount
+    #             rule_prefix = f"interest{currency.upper()}"
+    #
+    #         self.calculation_log_yields[date][f"{rule_prefix}${broker}"] = [
+    #             CalculationEntry(
+    #                 rule_type=RuleType.INTEREST,
+    #                 quantity=Decimal(1),
+    #                 amount=gbp_amount,
+    #                 new_quantity=Decimal(1),
+    #                 new_pool_cost=Decimal(0),
+    #                 fees=Decimal(0),
+    #             )
+    #         ]
 
     def process_interests(self) -> None:
         """Process all interest events.
@@ -1286,6 +1340,15 @@ class CapitalGainsCalculator:
                 if is_interest_fund:
                     self.total_foreign_interest += amount
 
+        def process_transfers(self) -> None:
+            """ Process transfers in or out. Used only for mixed fund bookkeeping, not for CGT"""
+
+            #if transfer in:
+                # update the mixed fund status
+
+            #if transfer out:
+            # update the mixed fund status
+
     def calculate_capital_gain(
         self,
     ) -> CapitalGainsReport:
@@ -1307,6 +1370,8 @@ class CapitalGainsCalculator:
             begin_index + datetime.timedelta(days=x)
             for x in range((end_index - begin_index).days + 1)
         ):
+            print(self.acquisition_list)
+            break
             if date_index in self.acquisition_list:
                 for symbol in self.acquisition_list[date_index]:
                     calculation_entries = self.process_acquisition(
@@ -1425,6 +1490,8 @@ class CapitalGainsCalculator:
                             ],
                         )
                     ]
+
+            #if cash in or out (transfers in, transfers outs, interest in, dividends in): process cash_event
 
         self.process_dividends()
         self.process_interests()

@@ -98,6 +98,16 @@ class HmrcTransactionData:
         )
 
 
+class MixedFundTransactionType(Enum):
+    EARNINGS = 0
+    TRANSFER_IN = 1
+    TRANSFER_OUT = 2
+    DIVIDEND = 3
+    DIVIDEND_TAX = 4
+    INTEREST = 5
+    DISPOSAL = 6
+
+
 @dataclass
 class ForeignCurrencyAmount:
     """Represent a decimal amount in foreign currency."""
@@ -132,7 +142,20 @@ ExcessReportedIncomeLog = dict[datetime.date, dict[str, ExcessReportedIncome]]
 ExcessReportedIncomeDistributionLog = dict[
     datetime.date, dict[str, ExcessReportedIncomeDistribution]
 ]
+# Keeps a log for each: Broker / MixedFundTransactionType / Day / Symbol
+MixedFundTransactionLog = dict[str, dict[MixedFundTransactionType, dict[datetime.date, dict[str, HmrcTransactionData]]]]
 
+
+NEED A DATA STRUCTURE WHICH LOGS FOR EACH BROKER (SAME TIME AS FIRST PASS):
+ALL UNITARY TRANSACTIONS IN THE TEMPORAL ORDER IF THEY HAVE ONE OF THE MixedFundTransactionType
+AMOUNT MUST BE LOGGED IN GBP AT THE TIME OF TRANSACTION
+
+LATER, NECESSARILY AFTER SECOND PASS WE HAVE A PROCESSING OF THIS DATA STRUCTURE WHICH DOES:
+FOR EACH EARNING: MATCH WITH OWR EVENT AND DISTRIBUTE EARNINGS IN UK_TAXED_EARNINGS OR OWR_EARNINGS
+FOR EACH DISPOSAL: FIND THE RIGHT PRICE VIA THE LIST OF HMRC_DISPOSALS, AND DISTRIBUTE GAIN IN FOREIGN_GAIN
+FOR EACH DIVIDEND_TAX: MATCH WITH THE APPROPRIATE DIVIDENT EVENT
+FOR EACH DIVIDENT W TAX: DISTRIBUTE GAIN - TAX IN GAIN_W_FOREIGN_TAX
+FOR EACH INTEREST / DIVIDENT EVENT WITHOUT TAX: DISTRIBUTE GAIN IN GAIN
 
 class ActionType(Enum):
     """Type of transaction action."""
