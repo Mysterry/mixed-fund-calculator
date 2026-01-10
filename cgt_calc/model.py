@@ -6,8 +6,9 @@ from dataclasses import dataclass, field
 import datetime
 from decimal import Decimal
 from enum import Enum
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, OrderedDict
 
+from .exceptions import InvalidTransactionError
 from .util import approx_equal, round_decimal
 
 if TYPE_CHECKING:
@@ -98,16 +99,6 @@ class HmrcTransactionData:
         )
 
 
-class MixedFundTransactionType(Enum):
-    EARNINGS = 0
-    TRANSFER_IN = 1
-    TRANSFER_OUT = 2
-    DIVIDEND = 3
-    DIVIDEND_TAX = 4
-    INTEREST = 5
-    DISPOSAL = 6
-
-
 @dataclass
 class ForeignCurrencyAmount:
     """Represent a decimal amount in foreign currency."""
@@ -142,20 +133,6 @@ ExcessReportedIncomeLog = dict[datetime.date, dict[str, ExcessReportedIncome]]
 ExcessReportedIncomeDistributionLog = dict[
     datetime.date, dict[str, ExcessReportedIncomeDistribution]
 ]
-# Keeps a log for each: Broker / MixedFundTransactionType / Day / Symbol
-MixedFundTransactionLog = dict[str, dict[MixedFundTransactionType, dict[datetime.date, dict[str, HmrcTransactionData]]]]
-
-
-NEED A DATA STRUCTURE WHICH LOGS FOR EACH BROKER (SAME TIME AS FIRST PASS):
-ALL UNITARY TRANSACTIONS IN THE TEMPORAL ORDER IF THEY HAVE ONE OF THE MixedFundTransactionType
-AMOUNT MUST BE LOGGED IN GBP AT THE TIME OF TRANSACTION
-
-LATER, NECESSARILY AFTER SECOND PASS WE HAVE A PROCESSING OF THIS DATA STRUCTURE WHICH DOES:
-FOR EACH EARNING: MATCH WITH OWR EVENT AND DISTRIBUTE EARNINGS IN UK_TAXED_EARNINGS OR OWR_EARNINGS
-FOR EACH DISPOSAL: FIND THE RIGHT PRICE VIA THE LIST OF HMRC_DISPOSALS, AND DISTRIBUTE GAIN IN FOREIGN_GAIN
-FOR EACH DIVIDEND_TAX: MATCH WITH THE APPROPRIATE DIVIDENT EVENT
-FOR EACH DIVIDENT W TAX: DISTRIBUTE GAIN - TAX IN GAIN_W_FOREIGN_TAX
-FOR EACH INTEREST / DIVIDENT EVENT WITHOUT TAX: DISTRIBUTE GAIN IN GAIN
 
 class ActionType(Enum):
     """Type of transaction action."""
@@ -223,6 +200,78 @@ class RuleType(Enum):
     INTEREST = 6
     EXCESS_REPORTED_INCOME = 7
     EXCESS_REPORTED_INCOME_DISTRIBUTION = 8
+
+
+
+# Keeps a log for each broker of the
+
+@dataclass
+class MixedFund:
+    """"Class representing a broker's mixed fund"""
+
+    broker: str
+    mixed_fund_transaction_log: list[BrokerTransaction]
+    processed_mixed_fund_transaction_log: list[ProcessedMixedFundTransaction]
+
+    class ProcessedMixedFundTransaction:
+        broker: str
+        action: ActionType
+        amount: Decimal
+        quantity: Decimal | None
+        price: Decimal | None
+        fees: Decimal = Decimal(0)
+        symbol: str | None
+        origin: str | None
+        destination: str | None
+        owr_rate: Decimal | None
+        tax_at_source: Decimal | None
+
+
+    def add(self, transaction: BrokerTransaction) -> None:
+        """"Adds a transaction to the log, only if it is from the right broker and from admittable types"""
+        if transaction.broker == self.broker and transaction.action  in [
+            ActionType.SELL,
+            ActionType.TRANSFER,
+            ActionType.STOCK_ACTIVITY,
+            ActionType.DIVIDEND,
+            ActionType.FEE,
+            ActionType.ADJUSTMENT,
+            ActionType.CAPITAL_GAIN,
+            ActionType.INTEREST,
+            ActionType.WIRE_FUNDS_RECEIVED,
+            ActionType.NRA_TAX_ADJ,
+        ]:
+            self.mixed_fund_transaction_log.append(transaction)
+
+    def process(self) -> None:
+        """Processes the raw transactions so that they are ready to be used for mixed fund status:
+        * Dividends are matched with their respective tax event, if any
+        * Stock activity is matched with their respective OWR event, if any
+        * Transfers in/out are matched with their origin/destination
+        """
+
+        self.processed_mixed_fund_transaction_log = []
+
+        for transaction in self.mixed_fund_transaction_log:
+            if transaction.action == ActionType.NRA_TAX_ADJ and transaction.symbol:
+
+
+
+
+
+
+
+# NEED A DATA STRUCTURE WHICH LOGS FOR EACH BROKER (SAME TIME AS FIRST PASS):
+# ALL UNITARY TRANSACTIONS IN THE TEMPORAL ORDER IF THEY HAVE ONE OF THE MixedFundTransactionType
+# AMOUNT MUST BE LOGGED IN GBP AT THE TIME OF TRANSACTION
+#
+# LATER, NECESSARILY AFTER SECOND PASS WE HAVE A PROCESSING OF THIS DATA STRUCTURE WHICH DOES:
+# FOR EACH EARNING: MATCH WITH OWR EVENT AND DISTRIBUTE EARNINGS IN UK_TAXED_EARNINGS OR OWR_EARNINGS
+# FOR EACH DISPOSAL: FIND THE RIGHT PRICE VIA THE LIST OF HMRC_DISPOSALS, AND DISTRIBUTE GAIN IN FOREIGN_GAIN
+# FOR EACH DIVIDEND_TAX: MATCH WITH THE APPROPRIATE DIVIDENT EVENT
+# FOR EACH DIVIDENT W TAX: DISTRIBUTE GAIN - TAX IN GAIN_W_FOREIGN_TAX
+# FOR EACH INTEREST / DIVIDENT EVENT WITHOUT TAX: DISTRIBUTE GAIN IN GAIN
+
 
 
 @dataclass
