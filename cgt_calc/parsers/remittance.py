@@ -117,22 +117,6 @@ class OWREvent:
         overseas_working_days_header = OWRFileRequiredHeaders.OVERSEAS_WORKING_DAYS.value
         self.overseas_working_days = int(row_dict[overseas_working_days_header])
 
-
-@dataclass
-class OWREvents:
-    """Class representing a history of OWR events"""
-
-    owr_events = list[OWREvent]
-
-    def __init__(self,
-                 owr_events: list[OrderedDict[str, str]],
-                 file
-                 ):
-        self.owr_events = list()
-
-        for owr_event in owr_events:
-            self.owr_events.append(OWREvent(owr_event, file))
-
 def read_remittance_basis(
     remittance_basis_file: Path | None,
 ) -> TaxFilings:
@@ -168,12 +152,11 @@ def read_remittance_basis(
 
 def read_owr(
     owr_file: Path | None,
-) -> OWREvents:
+) -> list[OWREvent]:
     """Read OWR events from CSV file."""
     if owr_file is None:
         LOGGER.warning("No OWR file provided")
-        return OWREvents(list(), file=owr_file)
-
+        return list()
     with owr_file.open(encoding="utf-8") as csv_file:
         print(f"Parsing {owr_file}...")
         lines = list(csv.reader(csv_file))
@@ -199,4 +182,4 @@ def read_owr(
         for row in lines
         if any(row)
     ]
-    return OWREvents(owr_events=owr_events, file=owr_file)
+    return [OWREvent(owr_event, owr_file) for owr_event in owr_events]

@@ -11,7 +11,7 @@ import logging
 import sys
 from typing import TYPE_CHECKING
 
-from cgt_calc.parsers.remittance import OWREvents, TaxFilings
+from cgt_calc.parsers.remittance import OWREvent, TaxFilings
 from . import render_latex
 from .args_parser import create_parser
 from .const import (
@@ -55,11 +55,12 @@ from .model import (
     ForeignCurrencyAmount,
     HmrcTransactionData,
     HmrcTransactionLog,
-    MixedFundTransactionLog,
     PortfolioEntry,
     Position,
     RuleType,
     SpinOff,
+    MixedFund,
+    ProcessedMixedFundTransaction
 )
 from .parsers import read_broker_transactions
 from .parsers.remittance import read_remittance_basis, read_owr
@@ -157,7 +158,7 @@ class CapitalGainsCalculator:
         initial_prices: InitialPrices,
         interest_fund_tickers: list[str],
         tax_filings: TaxFilings,
-        owr_events: OWREvents,
+        owr_events: list[OWREvent],
         balance_check: bool = True,
         calc_unrealized_gains: bool = False,
     ):
@@ -201,7 +202,7 @@ class CapitalGainsCalculator:
             lambda: defaultdict(ExcessReportedIncomeDistribution)
         )
 
-        self.mixed_fund_changes_list: MixedFundTransactionLog = {}
+        self.mixed_funds: dict[str, MixedFund] = {}
 
     def date_in_tax_year(self, date: datetime.date) -> bool:
         """Check if date is within current tax year."""
@@ -231,7 +232,6 @@ class CapitalGainsCalculator:
             if price is None:
                 price = self.initial_prices.get(transaction.date, symbol)
             amount = round_decimal(quantity * price, 2)
-            if
         elif transaction.action is ActionType.SPIN_OFF:
             price, amount = self.handle_spin_off(transaction)
         elif transaction.action is ActionType.STOCK_SPLIT:
@@ -249,7 +249,7 @@ class CapitalGainsCalculator:
                 price,
                 transaction.fees,
                 CalculationType.ACQUISITION,
-            ):
+            ) and transaction.action != ActionType.CASH_IN_LIEU:
                 raise CalculatedAmountDiscrepancyError(transaction, -calculated_amount)
             amount = -amount
 
@@ -386,7 +386,7 @@ class CapitalGainsCalculator:
             price,
             transaction.fees,
             CalculationType.DISPOSAL,
-        ):
+        ) and transaction.action != ActionType.CASH_IN_LIEU:
             raise CalculatedAmountDiscrepancyError(transaction, calculated_amount)
         add_to_list(
             self.disposal_list,
@@ -510,6 +510,15 @@ class CapitalGainsCalculator:
             self.isin_converter.add_from_transaction(transaction)
 
         for i, transaction in enumerate(transactions):
+            if transaction.broker != 'N/A':
+
+                try:
+                    self.mixed_funds[transaction.broker]
+                except KeyError:
+                    self.mixed_funds[transaction.broker] = MixedFund(transaction.broker)
+
+                self.mixed_funds[transaction.broker].add(transaction)
+
             if transaction.action == ActionType.EXCESS_REPORTED_INCOME:
                 self.add_eri(transaction)
                 balance_history.append(
@@ -541,10 +550,27 @@ class CapitalGainsCalculator:
                 ActionType.CASH_MERGER,
                 ActionType.FULL_REDEMPTION,
                 ActionType.SELL_OPTION,
-                ActionType.EXPIRATION
+                ActionType.EXPIRATION,
+                ActionType.CASH_IN_LIEU
             ]:
                 amount = get_amount_or_fail(transaction)
                 new_balance += amount
+                if transaction.action == ActionType.CASH_IN_LIEU:
+                    # Cash In Lieu needs to be treated as a disposal of an asset of cost 0
+                    transaction.quantity = Decimal(1)
+                    dummy_cash_in_lieu_transaction =BrokerTransaction(
+                            date=transaction.date,
+                            action=ActionType.BUY,
+                            symbol=transaction.symbol,
+                            description=transaction.description,
+                            quantity=transaction.quantity,
+                            price=Decimal(0),
+                            fees=Decimal(0),
+                            amount=transaction.amount,
+                            currency=transaction.currency,
+                            broker=transaction.broker,
+                        )
+                    self.add_acquisition(dummy_cash_in_lieu_transaction)
                 self.add_disposal(transaction)
                 if self.date_in_tax_year(transaction.date):
                     total_disposal_proceeds += self.currency_converter.to_gbp_for(
@@ -558,7 +584,7 @@ class CapitalGainsCalculator:
                 gbp_fees = self.currency_converter.to_gbp_for(
                     transaction.fees, transaction, LOGGER
                 )
-                symbol = get_symbol_or_fail(transaction)
+                symbol = transaction.symbol
                 add_to_list(
                     self.acquisition_list,
                     transaction.date,
@@ -672,6 +698,121 @@ class CapitalGainsCalculator:
         self.first_pass_report(
             balance, dividends, dividends_tax, interests, total_disposal_proceeds
         )
+
+    def preprocess_mixed_fund(self, broker: str) -> None:
+        """Prepares the raw transactions of a mixed fund so that they are ready to be browsed for mixed fund calc:
+        Amount is converted to GBP as of the date of the transaction
+
+        * Dividends are matched with their respective tax event, if any
+        * Interests are matched with their respective tax event, if any
+        * Stock activity is matched with their respective OWR event, if any
+        * Transfers in/out are matched with their origin/destination
+
+        """
+
+        mixed_fund = self.mixed_funds[broker]
+        mixed_fund.preprocessed_mixed_fund_transaction_log = []
+
+        dividend_tax_transactions = [transaction for transaction in mixed_fund.mixed_fund_transaction_log \
+                                     if transaction.action == ActionType.NRA_TAX_ADJ and transaction.symbol]
+        interest_tax_transactions = [transaction for transaction in mixed_fund.mixed_fund_transaction_log \
+                                     if transaction.action == ActionType.NRA_TAX_ADJ and  transaction.symbol is None]
+
+        for transaction in mixed_fund.mixed_fund_transaction_log:
+            if transaction.action == ActionType.DIVIDEND:
+                # Dividends need to be matched to their possible tax event
+                dividend_tax_transaction = transaction.find_close_event(
+                    [tax for tax in dividend_tax_transactions if tax.symbol == transaction.symbol],
+                    min_delta=0, max_delta=0)
+
+                processed_mixed_fund_transaction = ProcessedMixedFundTransaction(
+                    broker=transaction.broker,
+                    date=transaction.date,
+                    action=transaction.action,
+                    amount=self.currency_converter.to_gbp_for(transaction.amount, transaction),
+                    fees=self.currency_converter.to_gbp_for(transaction.fees, transaction),
+                    symbol=transaction.symbol,
+                    tax_at_source=self.currency_converter.to_gbp_for(dividend_tax_transaction.amount, dividend_tax_transaction) if dividend_tax_transaction else 0
+                )
+                mixed_fund.processed_mixed_fund_transaction_log.append(processed_mixed_fund_transaction)
+            if transaction.action == ActionType.INTEREST:
+                # Interests need to be matched to their possible tax event
+                interest_tax_transaction = transaction.find_close_event(interest_tax_transactions,
+                    min_delta=0, max_delta=0)
+
+                processed_mixed_fund_transaction = ProcessedMixedFundTransaction(
+                    broker=transaction.broker,
+                    date=transaction.date,
+                    action=transaction.action,
+                    amount=self.currency_converter.to_gbp_for(transaction.amount, transaction),
+                    fees=self.currency_converter.to_gbp_for(transaction.fees, transaction),
+                    tax_at_source=self.currency_converter.to_gbp_for(interest_tax_transaction.amount, interest_tax_transaction) if interest_tax_transaction else 0
+                )
+                mixed_fund.processed_mixed_fund_transaction_log.append(processed_mixed_fund_transaction)
+
+            if transaction.action == ActionType.STOCK_ACTIVITY:
+                # Stock activity is matched to the OWR events tables to figure out the OWR rate
+                owr_event = transaction.find_close_event(
+                    [owr_event for owr_event in self.owr_events if (owr_event.broker == transaction.broker
+                                                                    and owr_event.symbol == transaction.symbol
+                                                                    and owr_event.quantity == transaction.pre_tax_quantity
+                                                                    )
+                    ],
+                    min_delta=6, max_delta=0)
+                if not owr_event:
+                    raise InvalidTransactionError(transaction, message="Couldn't find a matching OWR event for this stock award activity")
+
+                owr_rate = (
+                    owr_event.overseas_working_days
+                    / owr_event.working_days
+                    * owr_event.vesting_days_in_three_years
+                    / owr_event.vesting_days
+                ) if owr_event.working_days != 0 else 0
+
+                processed_mixed_fund_transaction = ProcessedMixedFundTransaction(
+                    broker=transaction.broker,
+                    date=transaction.date,
+                    action=transaction.action,
+                    quantity=transaction.quantity,
+                    fees=self.currency_converter.to_gbp_for(transaction.fees, transaction),
+                    price=self.currency_converter.to_gbp_for(transaction.price, transaction),
+                    symbol=transaction.symbol,
+                    owr_rate=owr_rate,
+                    pre_tax_quantity=transaction.pre_tax_quantity
+                )
+                mixed_fund.processed_mixed_fund_transaction_log.append(processed_mixed_fund_transaction)
+
+            if transaction.action in [ActionType.TRANSFER, ActionType.WIRE_FUNDS_RECEIVED, ActionType.FEE, ActionType.ADJUSTMENT]:
+                processed_mixed_fund_transaction = ProcessedMixedFundTransaction(
+                    broker=transaction.broker,
+                    date=transaction.date,
+                    action=transaction.action,
+                    amount=self.currency_converter.to_gbp_for(transaction.amount, transaction),
+                    fees=self.currency_converter.to_gbp_for(transaction.fees, transaction),
+                    destination=transaction.destination if transaction.action == ActionType.TRANSFER else None,
+                    origin=transaction.origin if transaction.action == ActionType.WIRE_FUNDS_RECEIVED else None
+                )
+                mixed_fund.processed_mixed_fund_transaction_log.append(processed_mixed_fund_transaction)
+
+            if transaction.action == ActionType.SELL:
+                processed_mixed_fund_transaction = ProcessedMixedFundTransaction(
+                    broker=transaction.broker,
+                    date=transaction.date,
+                    action=transaction.action,
+                    amount=self.currency_converter.to_gbp_for(transaction.amount, transaction),
+                    quantity=transaction.quantity,
+                    fees=self.currency_converter.to_gbp_for(transaction.fees, transaction),
+                    symbol=transaction.symbol,
+                    price=self.currency_converter.to_gbp_for(transaction.price, transaction)
+                )
+                mixed_fund.processed_mixed_fund_transaction_log.append(processed_mixed_fund_transaction)
+
+    def preprocess_mixed_funds(self) -> None:
+        """Pre-process all the mixed funds"""
+        for broker in self.mixed_funds.keys():
+            self.preprocess_mixed_fund(broker)
+
+        print(self.mixed_funds)
 
     def first_pass_report(
         self,
@@ -1162,55 +1303,6 @@ class CapitalGainsCalculator:
             eris=[eri],
         )
 
-    # def process_interest(self): -> None:
-    #     """Process a single interest event at a time
-    #     """
-    #     monthly_interests: dict[
-    #         tuple[str, str, datetime.date], ForeignCurrencyAmount
-    #     ] = defaultdict(ForeignCurrencyAmount)
-    #     last_date: datetime.date = datetime.date.min
-    #     last_broker: str | None = None
-    #     last_currency: str | None = None
-    #
-    #     for (broker, currency, date), foreign_amount in sorted(
-    #         self.interest_list.items()
-    #     ):
-    #         if self.date_in_tax_year(date):
-    #             if (
-    #                 broker == last_broker
-    #                 and date.month == last_date.month
-    #                 and currency == last_currency
-    #             ):
-    #                 monthly_interests[(broker, currency, date)] = monthly_interests.pop(
-    #                     (broker, currency, last_date)
-    #                 )
-    #             monthly_interests[(broker, currency, date)] += foreign_amount
-    #             last_date = date
-    #             last_broker = broker
-    #             last_currency = currency
-    #
-    #     for (broker, currency, date), foreign_amount in monthly_interests.items():
-    #         gbp_amount = self.currency_converter.to_gbp(
-    #             foreign_amount.amount, foreign_amount.currency, date, LOGGER
-    #         )
-    #         if foreign_amount.currency == UK_CURRENCY:
-    #             self.total_uk_interest += gbp_amount
-    #             rule_prefix = "interestUK"
-    #         else:
-    #             self.total_foreign_interest += gbp_amount
-    #             rule_prefix = f"interest{currency.upper()}"
-    #
-    #         self.calculation_log_yields[date][f"{rule_prefix}${broker}"] = [
-    #             CalculationEntry(
-    #                 rule_type=RuleType.INTEREST,
-    #                 quantity=Decimal(1),
-    #                 amount=gbp_amount,
-    #                 new_quantity=Decimal(1),
-    #                 new_pool_cost=Decimal(0),
-    #                 fees=Decimal(0),
-    #             )
-    #         ]
-
     def process_interests(self) -> None:
         """Process all interest events.
 
@@ -1370,8 +1462,6 @@ class CapitalGainsCalculator:
             begin_index + datetime.timedelta(days=x)
             for x in range((end_index - begin_index).days + 1)
         ):
-            print(self.acquisition_list)
-            break
             if date_index in self.acquisition_list:
                 for symbol in self.acquisition_list[date_index]:
                     calculation_entries = self.process_acquisition(
@@ -1588,6 +1678,10 @@ def calculate_cgt(args: argparse.Namespace) -> None:
     # It also converts prices to GBP, validates data and calculates dividends,
     # taxes on dividends and interest.
     calculator.convert_to_hmrc_transactions(broker_transactions)
+
+    # Mixed funds events pre-processing grabs MixedFund events that have been organized during the first pass and
+    # transforms them to be ready for mixed fund calculation later
+    calculator.preprocess_mixed_funds()
     # Second pass calculates capital gain tax for the given tax year.
     report = calculator.calculate_capital_gain()
     print(report)

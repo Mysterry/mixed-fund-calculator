@@ -4,9 +4,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 import datetime
+from datetime import timedelta
 from decimal import Decimal
 from enum import Enum
-from typing import TYPE_CHECKING, OrderedDict
+from typing import TYPE_CHECKING
 
 from .exceptions import InvalidTransactionError
 from .util import approx_equal, round_decimal
@@ -161,6 +162,7 @@ class ActionType(Enum):
     SELL_OPTION = 22
     NRA_TAX_ADJ = 23
     BOOKKEEPING = 24
+    CASH_IN_LIEU = 25
 
 
 class CalculationType(Enum):
@@ -187,6 +189,20 @@ class BrokerTransaction:
     isin: str | None = None
     destination: str | None = None
     origin: str | None = None
+    pre_tax_quantity: Decimal | None = None
+
+    def find_close_event(self, event_list: list, min_delta=1, max_delta=1):
+        """Given a transaction, looks in a list of objects with data attribute for one whose date is comprised between this
+        transaction's date - min_delta and date + max_delta. Raises an error if more than 1 object is found, returns None if 0"""
+        filtered_event_list = [event for event in event_list if
+                                     self.date - timedelta(days=min_delta) <= event.date <= self.date + timedelta(days=max_delta)]
+        if len(filtered_event_list) == 0:
+            return None
+        elif len(filtered_event_list) > 1:
+            raise InvalidTransactionError(self, message="More than 1 close event found")
+        elif len(filtered_event_list) == 1:
+            return filtered_event_list[0]
+
 
 
 class RuleType(Enum):
@@ -202,8 +218,22 @@ class RuleType(Enum):
     EXCESS_REPORTED_INCOME_DISTRIBUTION = 8
 
 
+@dataclass
+class ProcessedMixedFundTransaction:
+    broker: str
+    date: datetime.date
+    action: ActionType
+    amount: Decimal | None = None
+    quantity: Decimal | None = None
+    fees: Decimal | None = None
+    price: Decimal | None = None
+    symbol: str | None = None
+    origin: str | None = None
+    destination: str | None = None
+    owr_rate: Decimal | None = None
+    tax_at_source: Decimal | None = None
+    pre_tax_quantity: Decimal | None = None
 
-# Keeps a log for each broker of the
 
 @dataclass
 class MixedFund:
@@ -213,22 +243,26 @@ class MixedFund:
     mixed_fund_transaction_log: list[BrokerTransaction]
     processed_mixed_fund_transaction_log: list[ProcessedMixedFundTransaction]
 
-    class ProcessedMixedFundTransaction:
+    def __init__(
+        self,
         broker: str
-        action: ActionType
-        amount: Decimal
-        quantity: Decimal | None
-        price: Decimal | None
-        fees: Decimal = Decimal(0)
-        symbol: str | None
-        origin: str | None
-        destination: str | None
-        owr_rate: Decimal | None
-        tax_at_source: Decimal | None
+    ):
+        """Create empty mixed fund"""
+        self.broker = broker
+        self.mixed_fund_transaction_log = []
+        self.processed_mixed_fund_transaction_log = []
 
+    def __repr__(self) -> str:
+       """Return string representation."""
+       return f"""Mixed fun of: {self.broker} 
+           Raw transactions: 
+           {'\n'.join(map(str, self.mixed_fund_transaction_log))}
+           Pre-processed transactions: 
+           {'\n'.join(map(str, self.processed_mixed_fund_transaction_log))}
+       """
 
     def add(self, transaction: BrokerTransaction) -> None:
-        """"Adds a transaction to the log, only if it is from the right broker and from admittable types"""
+        """Adds a transaction to the log, only if it is from the right broker and from admittable types"""
         if transaction.broker == self.broker and transaction.action  in [
             ActionType.SELL,
             ActionType.TRANSFER,
@@ -236,29 +270,11 @@ class MixedFund:
             ActionType.DIVIDEND,
             ActionType.FEE,
             ActionType.ADJUSTMENT,
-            ActionType.CAPITAL_GAIN,
             ActionType.INTEREST,
             ActionType.WIRE_FUNDS_RECEIVED,
             ActionType.NRA_TAX_ADJ,
         ]:
             self.mixed_fund_transaction_log.append(transaction)
-
-    def process(self) -> None:
-        """Processes the raw transactions so that they are ready to be used for mixed fund status:
-        * Dividends are matched with their respective tax event, if any
-        * Stock activity is matched with their respective OWR event, if any
-        * Transfers in/out are matched with their origin/destination
-        """
-
-        self.processed_mixed_fund_transaction_log = []
-
-        for transaction in self.mixed_fund_transaction_log:
-            if transaction.action == ActionType.NRA_TAX_ADJ and transaction.symbol:
-
-
-
-
-
 
 
 # NEED A DATA STRUCTURE WHICH LOGS FOR EACH BROKER (SAME TIME AS FIRST PASS):

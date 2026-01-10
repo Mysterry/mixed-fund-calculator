@@ -216,4 +216,6 @@ class CurrencyConverter:
 
     def to_gbp_for(self, amount: Decimal, transaction: BrokerTransaction, logger: Logger | None = None) -> Decimal:
         """Convert amount from transaction currency to GBP."""
+        if amount is None:
+            print(amount, transaction)
         return self.to_gbp(amount, transaction.currency, transaction.date, logger)

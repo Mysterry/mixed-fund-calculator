@@ -53,6 +53,7 @@ class AwardsTransactionsFileRequiredHeaders(str, Enum):
     DATE = "Date"
     SYMBOL = "Symbol"
     FAIR_MARKET_VALUE_PRICE = "FairMarketValuePrice"
+    PRE_TAX_QUANTITY = "Quantity"
 
 
 class SchwabTransfersFileRequiredHeaders(str, Enum):
@@ -85,15 +86,9 @@ def action_from_str(label: str, file: Path) -> ActionType:
 
     if label in [
         "MoneyLink Transfer",
-        "Misc Cash Entry",
-        "Service Fee",
         "Wire Funds",
         "Wire Sent",
-        "Funds Received",
-        "Cash In Lieu",
         "Visa Purchase",
-        "MoneyLink Deposit",
-        "MoneyLink Adj",  # likely a returned transfer
         "Security Transfer",
     ]:
         return ActionType.TRANSFER
@@ -117,7 +112,7 @@ def action_from_str(label: str, file: Path) -> ActionType:
     if label in ["NRA Withholding", "Foreign Tax Paid"]:
         return ActionType.DIVIDEND_TAX
 
-    if label == "ADR Mgmt Fee":
+    if label in ["ADR Mgmt Fee", "Misc Cash Entry", "Service Fee"]:
         return ActionType.FEE
 
     if label in ["Adjustment", "IRS Withhold Adj", "Wire Funds Adj"]:
@@ -138,7 +133,13 @@ def action_from_str(label: str, file: Path) -> ActionType:
     if label == "Reinvest Dividend":
         return ActionType.REINVEST_DIVIDENDS
 
-    if label in ["Wire Funds Received", "Wire Received"]:
+    if label in [
+            "Wire Funds Received",
+            "Wire Received",
+            "Funds Received",
+            "MoneyLink Deposit",
+            "MoneyLink Adj",  # likely a returned transfer
+        ]:
         return ActionType.WIRE_FUNDS_RECEIVED
 
     if label == "Stock Split":
@@ -155,16 +156,20 @@ def action_from_str(label: str, file: Path) -> ActionType:
 
     if label == "Expired":
         return ActionType.EXPIRATION
+
+    if label == "Cash In Lieu":
+        return ActionType.CASH_IN_LIEU
+
     raise ParsingError(file, f"Unknown action: '{label}'")
 
 
 @dataclass
-class AwardPrices:
-    """Class to store initial stock prices."""
+class AwardInfos:
+    """Class to store initial stock prices and full award quantity (pre-tax withholding)"""
 
-    award_prices: dict[datetime.date, dict[str, Decimal]]
+    award_infos: dict[datetime.date, dict[str, dict]]
 
-    def get(self, date: datetime.date, symbol: str) -> tuple[datetime.date, Decimal]:
+    def get_initial_infos(self, date: datetime.date, symbol: str) -> tuple[datetime.date, dict]:
         """Get initial stock price at given date."""
         # Award dates may go back for few days, depending on
         # holidays or weekends, so we do a linear search
@@ -174,11 +179,11 @@ class AwardPrices:
             to_search = date - datetime.timedelta(days=i)
 
             if (
-                to_search in self.award_prices
-                and symbol in self.award_prices[to_search]
+                to_search in self.award_infos
+                and symbol in self.award_infos[to_search]
             ):
-                return (to_search, self.award_prices[to_search][symbol])
-        raise KeyError(f"Award price is not found for symbol {symbol} for date {date}")
+                return to_search, self.award_infos[to_search][symbol]
+        raise KeyError(f"Award is not found for symbol {symbol} for date {date}")
 
 
 @dataclass
@@ -366,7 +371,7 @@ class SchwabTransaction(BrokerTransaction):
 
     @staticmethod
     def create(
-        row_dict: OrderedDict[str, str], file: Path, awards_prices: AwardPrices, transfers: list[SchwabTransfer]
+        row_dict: OrderedDict[str, str], file: Path, awards_infos: AwardInfos, transfers: list[SchwabTransfer]
     ) -> SchwabTransaction:
         """Create and post process a SchwabTransaction."""
         from decimal import InvalidOperation
@@ -385,7 +390,9 @@ class SchwabTransaction(BrokerTransaction):
             # for awards which don't match the PDF statements.
             # We want to make sure to match date and price form the awards
             # spreadsheet.
-            _vest_date, transaction.price = awards_prices.get(transaction.date, symbol)
+            _vest_date, awards_infos = awards_infos.get_initial_infos(transaction.date, symbol)
+            transaction.price = awards_infos['initial_price']
+            transaction.pre_tax_quantity = awards_infos['pre_tax_quantity']
         if transaction.action in [ActionType.TRANSFER, ActionType.WIRE_FUNDS_RECEIVED]:
             # If a file is provided with transfer annotation, load the data by matching the date/type/amount/descr of the row
             for transfer in transfers:
@@ -672,7 +679,7 @@ def read_schwab_transactions(
     transactions_file: Path, schwab_award_transactions_file: Path | None, schwab_transfers_file: Path | None
 ) -> list[BrokerTransaction]:
     """Read Schwab transactions from file."""
-    awards_prices = _read_schwab_awards(schwab_award_transactions_file)
+    awards_infos = _read_schwab_awards(schwab_award_transactions_file)
 
     transfers = _read_schwab_transfers(schwab_transfers_file)
 
@@ -701,7 +708,7 @@ def read_schwab_transactions(
         SchwabTransaction.create(
             OrderedDict(zip(headers, row, strict=True)),
             transactions_file,
-            awards_prices,
+            awards_infos,
             transfers
         )
         for row in lines
@@ -715,13 +722,13 @@ def read_schwab_transactions(
 
 def _read_schwab_awards(
     schwab_award_transactions_file: Path | None,
-) -> AwardPrices:
+) -> AwardInfos:
     """Read initial stock prices from CSV file."""
     if schwab_award_transactions_file is None:
         LOGGER.warning("No Schwab Award file provided")
-        return AwardPrices(award_prices={})
+        return AwardInfos(award_infos={})
 
-    initial_prices: dict[datetime.date, dict[str, Decimal]] = defaultdict(dict)
+    award_infos: dict[datetime.date, dict[str, dict]] = defaultdict(dict)
     headers = []
     lines = []
 
@@ -781,10 +788,16 @@ def _read_schwab_awards(
             if row_dict[fair_market_value_price_header] != ""
             else None
         )
-        if symbol is not None and price is not None:
+        pre_tax_quantity_header = AwardsTransactionsFileRequiredHeaders.PRE_TAX_QUANTITY.value
+        pre_tax_quantity = (
+            Decimal(row_dict[pre_tax_quantity_header].replace(",", ""))
+            if row_dict[pre_tax_quantity_header] != ""
+            else None
+        )
+        if symbol is not None and price is not None and pre_tax_quantity is not None:
             symbol = TICKER_RENAMES.get(symbol, symbol)
-            initial_prices[date][symbol] = price
-    return AwardPrices(award_prices=dict(initial_prices))
+            award_infos[date][symbol] = {'initial_price': price, 'pre_tax_quantity': pre_tax_quantity}
+    return AwardInfos(award_infos=award_infos)
 
 
 def _read_schwab_transfers(
