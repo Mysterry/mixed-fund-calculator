@@ -103,6 +103,7 @@ def action_from_str(label: str, file: Path) -> ActionType:
         "Div Adjustment",
         "Special Qual Div",
         "Non-Qualified Div",
+        "Cash In Lieu"
     ]:
         return ActionType.DIVIDEND
 
@@ -156,9 +157,6 @@ def action_from_str(label: str, file: Path) -> ActionType:
 
     if label == "Expired":
         return ActionType.EXPIRATION
-
-    if label == "Cash In Lieu":
-        return ActionType.CASH_IN_LIEU
 
     raise ParsingError(file, f"Unknown action: '{label}'")
 

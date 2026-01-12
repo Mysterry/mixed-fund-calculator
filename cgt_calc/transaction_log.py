@@ -35,3 +35,5 @@ def add_to_list(
     current_list[date_index][symbol] += HmrcTransactionData(
         quantity=quantity, amount=amount, fees=fees, eris=eris or []
     )
+    if quantity == 0:
+        print(date_index, symbol, quantity, amount, fees)

@@ -7,7 +7,8 @@ import datetime
 from datetime import timedelta
 from decimal import Decimal
 from enum import Enum
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, OrderedDict
+from collections import defaultdict
 
 from .exceptions import InvalidTransactionError
 from .util import approx_equal, round_decimal
@@ -233,6 +234,86 @@ class ProcessedMixedFundTransaction:
     owr_rate: Decimal | None = None
     tax_at_source: Decimal | None = None
     pre_tax_quantity: Decimal | None = None
+
+
+class MixedFundMoneyCategory(Enum):
+    """"Class representing the different categories of money in a mixed fund.
+    These are officially defined in RDRM35240"""
+
+    EMPLOYMENT_INCOME = 1
+    RELEVANT_FOREIGN_EARNINGS = 2
+    FOREIGN_SPECIFIC_EMPLOYMENT_INCOME = 3
+    RELEVANT_FOREIGN_INCOME = 4
+    FOREIGN_CHARGEABLE_GAINS = 5
+    EMPLOYMENT_INCOME_SUBJECT_TO_A_FOREIGN_FAX = 6
+    RELEVANT_FOREIGN_INCOME_SUBJECT_TO_A_FOREIGN_FAX = 7
+    FOREIGN_CHARGEABLE_GAINS_SUBJECT_TO_A_FOREIGN_FAX = 8
+    OTHER_INCOME = 9
+
+
+class MixedFundComposition:
+    """Class representing a mixed's fund composition. This is the representation of the mixed's fund according to
+    HMRC's mixed funds rules: it represents at all time the GBP cost of the book.
+    The composition is maintained at tax_year x category, following the specs of RDRM35240"""
+    broker: str
+    buckets: defaultdict[int, defaultdict[MixedFundMoneyCategory, Decimal]]
+
+    def __init__(
+            self,
+            broker: str
+        ):
+            """Create empty mixed fund composition"""
+            self.broker = broker
+            self.buckets = defaultdict(lambda: defaultdict(Decimal))
+
+    def get_next_none_empty_bucket(self) -> tuple[int, MixedFundMoneyCategory] | None:
+        """Returns as a list [tax_year, mixed_fund_money_category] the last bucket with non-zero amount"""
+
+        for tax_year in sorted(self.buckets.keys(), reverse=True):
+            for category in MixedFundMoneyCategory:
+                amount = self.buckets[tax_year][category]
+                if amount:
+                    return tax_year, category
+        return None
+
+    def add_money(self, tax_year: int, category: MixedFundMoneyCategory, amount: Decimal) \
+        -> dict[int, dict[MixedFundMoneyCategory, Decimal]]:
+        """Money is added in the relevant category bucket"""
+
+        if amount <= 0:
+            raise ValueError("Cannot add zero or negative amount to a mixed fund")
+        self.buckets[tax_year][category] += amount
+        return dict({tax_year: dict({category: amount})})
+
+    def get_total_amount(self) -> Decimal:
+        """Returns total amount in the mixed fund across all tax years and categories."""
+
+        return sum(
+            amount
+            for year_bucket in self.buckets.values()
+            for amount in year_bucket.values()
+        )
+
+    def withdraw_money_prorated(self, withdrawal: Decimal):
+        """Money is removed prorated if destination is overseas"""
+        total = self.get_total_amount()
+        withdrawals =  OrderedDict[int, OrderedDict[MixedFundMoneyCategory, Decimal]]
+
+        if total < withdrawal:
+            raise ValueError("Cannot withdraw amount from mixed fund higher than total value")
+
+        for tax_year in self.buckets.keys():
+            for category in MixedFundMoneyCategory:
+                amount = self.buckets[tax_year][category]
+                if amount:
+                    self.buckets[tax_year][category] -= amount * withdrawal / total
+                    withdrawals[tax_year][category] = -amount * withdrawal / total
+        return withdrawals
+
+    def withdraw_money_buckets_order(self, amount):
+        """Money is removed following the buckets' order if destination is UK"""
+
+
 
 
 @dataclass
@@ -610,3 +691,7 @@ class CapitalGainsReport:
         out += f"Total foreign interest proceeds: £{self.total_foreign_interest}\n"
 
         return out
+
+
+class MixedFundsReport:
+    pass

@@ -60,7 +60,7 @@ from .model import (
     RuleType,
     SpinOff,
     MixedFund,
-    ProcessedMixedFundTransaction
+    ProcessedMixedFundTransaction, MixedFundsReport
 )
 from .parsers import read_broker_transactions
 from .parsers.remittance import read_remittance_basis, read_owr
@@ -249,7 +249,7 @@ class CapitalGainsCalculator:
                 price,
                 transaction.fees,
                 CalculationType.ACQUISITION,
-            ) and transaction.action != ActionType.CASH_IN_LIEU:
+            ):
                 raise CalculatedAmountDiscrepancyError(transaction, -calculated_amount)
             amount = -amount
 
@@ -263,6 +263,7 @@ class CapitalGainsCalculator:
             self.currency_converter.to_gbp_for(amount, transaction, LOGGER),
             self.currency_converter.to_gbp_for(transaction.fees, transaction, LOGGER),
         )
+
 
     def handle_spin_off(
         self,
@@ -386,7 +387,7 @@ class CapitalGainsCalculator:
             price,
             transaction.fees,
             CalculationType.DISPOSAL,
-        ) and transaction.action != ActionType.CASH_IN_LIEU:
+        ):
             raise CalculatedAmountDiscrepancyError(transaction, calculated_amount)
         add_to_list(
             self.disposal_list,
@@ -504,7 +505,6 @@ class CapitalGainsCalculator:
         interests: dict[tuple[str, str], Decimal] = defaultdict(Decimal)
         total_disposal_proceeds = Decimal(0)
         balance_history: list[Decimal] = []
-        #mixed_fund_state_changes = dict[str, MixedFundStateChange]
 
         for transaction in transactions:
             self.isin_converter.add_from_transaction(transaction)
@@ -551,26 +551,10 @@ class CapitalGainsCalculator:
                 ActionType.FULL_REDEMPTION,
                 ActionType.SELL_OPTION,
                 ActionType.EXPIRATION,
-                ActionType.CASH_IN_LIEU
             ]:
                 amount = get_amount_or_fail(transaction)
                 new_balance += amount
-                if transaction.action == ActionType.CASH_IN_LIEU:
-                    # Cash In Lieu needs to be treated as a disposal of an asset of cost 0
-                    transaction.quantity = Decimal(1)
-                    dummy_cash_in_lieu_transaction =BrokerTransaction(
-                            date=transaction.date,
-                            action=ActionType.BUY,
-                            symbol=transaction.symbol,
-                            description=transaction.description,
-                            quantity=transaction.quantity,
-                            price=Decimal(0),
-                            fees=Decimal(0),
-                            amount=transaction.amount,
-                            currency=transaction.currency,
-                            broker=transaction.broker,
-                        )
-                    self.add_acquisition(dummy_cash_in_lieu_transaction)
+
                 self.add_disposal(transaction)
                 if self.date_in_tax_year(transaction.date):
                     total_disposal_proceeds += self.currency_converter.to_gbp_for(
@@ -579,20 +563,6 @@ class CapitalGainsCalculator:
             elif transaction.action is ActionType.FEE:
                 amount = get_amount_or_fail(transaction)
                 new_balance += amount
-                transaction.fees = -amount
-                transaction.quantity = Decimal(0)
-                gbp_fees = self.currency_converter.to_gbp_for(
-                    transaction.fees, transaction, LOGGER
-                )
-                symbol = transaction.symbol
-                add_to_list(
-                    self.acquisition_list,
-                    transaction.date,
-                    symbol,
-                    transaction.quantity,
-                    gbp_fees,
-                    gbp_fees,
-                )
             elif transaction.action in [
                 ActionType.STOCK_ACTIVITY,
                 ActionType.SPIN_OFF,
@@ -812,7 +782,6 @@ class CapitalGainsCalculator:
         for broker in self.mixed_funds.keys():
             self.preprocess_mixed_fund(broker)
 
-        print(self.mixed_funds)
 
     def first_pass_report(
         self,
@@ -1610,6 +1579,11 @@ class CapitalGainsCalculator:
             round_decimal(self.total_foreign_interest, 2),
             show_unrealized_gains=self.calc_unrealized_gains,
         )
+
+    def calculate_mixed_fund_states(self) -> MixedFundsReport:
+        """Calculates the state of the mixed fund's balances in each bucket transaction by transaction.
+        Returns a report of the current tax's year mixed fund movements tax movements & implications"""
+
 
     def make_portfolio_entry(
         self, symbol: str, quantity: Decimal, amount: Decimal
