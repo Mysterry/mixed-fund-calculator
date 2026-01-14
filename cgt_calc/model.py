@@ -7,7 +7,7 @@ import datetime
 from datetime import timedelta
 from decimal import Decimal
 from enum import Enum
-from typing import TYPE_CHECKING, OrderedDict
+from typing import TYPE_CHECKING, DefaultDict
 from collections import defaultdict
 
 from .exceptions import InvalidTransactionError
@@ -256,7 +256,7 @@ class MixedFundComposition:
     HMRC's mixed funds rules: it represents at all time the GBP cost of the book.
     The composition is maintained at tax_year x category, following the specs of RDRM35240"""
     broker: str
-    buckets: defaultdict[int, defaultdict[MixedFundMoneyCategory, Decimal]]
+    buckets: DefaultDict[int, DefaultDict[MixedFundMoneyCategory, Decimal]]
 
     def __init__(
             self,
@@ -297,7 +297,7 @@ class MixedFundComposition:
     def withdraw_money_prorated(self, withdrawal: Decimal):
         """Money is removed prorated if destination is overseas"""
         total = self.get_total_amount()
-        withdrawals =  OrderedDict[int, OrderedDict[MixedFundMoneyCategory, Decimal]]
+        withdrawals =  defaultdict(lambda: defaultdict(Decimal))
 
         if total < withdrawal:
             raise ValueError("Cannot withdraw amount from mixed fund higher than total value")
@@ -310,8 +310,23 @@ class MixedFundComposition:
                     withdrawals[tax_year][category] = -amount * withdrawal / total
         return withdrawals
 
-    def withdraw_money_buckets_order(self, amount):
+    def withdraw_money_buckets_order(self, withdrawal: Decimal):
         """Money is removed following the buckets' order if destination is UK"""
+
+        total = self.get_total_amount()
+        withdrawals =  defaultdict(lambda: defaultdict(Decimal))
+
+        if total < withdrawal:
+            raise ValueError("Cannot withdraw amount from mixed fund higher than total value")
+
+        while withdrawal > 0:
+            tax_year, category = self.get_next_none_empty_bucket()
+            amount = self.buckets[tax_year][category]
+            self.buckets[tax_year][category] -= min(amount, withdrawal)
+            withdrawals[tax_year][category] = -min(amount, withdrawal)
+            withdrawal -= min(amount, withdrawal)
+
+        return withdrawals
 
 
 
