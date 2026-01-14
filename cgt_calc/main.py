@@ -1550,7 +1550,10 @@ class CapitalGainsCalculator:
                         )
                     ]
 
-            #if cash in or out (transfers in, transfers outs, interest in, dividends in): process cash_event
+            for broker in self.mixed_funds.keys():
+                mixed_fund = self.mixed_funds[broker]
+                if date_index in [mixed_fund_transaction.date for mixed_fund_transaction in mixed_fund.processed_mixed_fund_transaction_log]:
+                    #post process the transactionS of that day, taking into account there can be several brokers
 
         self.process_dividends()
         self.process_interests()
