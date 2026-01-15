@@ -11,7 +11,7 @@ import logging
 import sys
 from typing import TYPE_CHECKING
 
-from cgt_calc.parsers.remittance import OWREvent, TaxFilings
+from cgt_calc.parsers.remittance import OWREvent, TaxFilings, TaxFilingBasis
 from . import render_latex
 from .args_parser import create_parser
 from .const import (
@@ -60,7 +60,9 @@ from .model import (
     RuleType,
     SpinOff,
     MixedFund,
-    ProcessedMixedFundTransaction, MixedFundsReport
+    ProcessedMixedFundTransaction,
+    MixedFundsReport,
+    MixedFundMoneyCategory
 )
 from .parsers import read_broker_transactions
 from .parsers.remittance import read_remittance_basis, read_owr
@@ -1550,9 +1552,57 @@ class CapitalGainsCalculator:
                         )
                     ]
 
+
+# ActionType.SELL,
+# ActionType.TRANSFER,
+## ActionType.STOCK_ACTIVITY,
+# ActionType.DIVIDEND,
+# ActionType.FEE,
+# ActionType.ADJUSTMENT,
+# ActionType.INTEREST,
+# ActionType.WIRE_FUNDS_RECEIVED,
+# ActionType.NRA_TAX_ADJ,
+
+
             for broker in self.mixed_funds.keys():
                 mixed_fund = self.mixed_funds[broker]
-                if date_index in [mixed_fund_transaction.date for mixed_fund_transaction in mixed_fund.processed_mixed_fund_transaction_log]:
+                composition = mixed_fund.mixed_fund_composition
+                for transaction in [mixed_fund_transaction for mixed_fund_transaction
+                                    in mixed_fund.processed_mixed_fund_transaction_log
+                                    if mixed_fund_transaction.date == date_index]:
+                    if transaction.action == ActionType.STOCK_ACTIVITY:
+                        if self.tax_filings.get(date_index.year) == TaxFilingBasis.REMITTANCE:
+                            # If there is an award earning in a remittance basis year, the OWR  part of its earnings is considered as foreign income
+                            # It cannot be higher than the post-amount deposited into the account
+                            owr_amount = min(transaction.pre_tax_quantity * transaction.price * transaction.owr_rate, transaction.amount)
+                            composition.add_money(date_index.year, MixedFundMoneyCategory.RELEVANT_FOREIGN_EARNINGS, owr_amount)
+                            composition.add_money(date_index.year, MixedFundMoneyCategory.EMPLOYMENT_INCOME, transaction.amount - owr_amount)
+
+                            LOGGER.debug(
+                            f"[MIXED FUND EVENT] RSU vesting in {broker} in a tax year filed on remittance basis "
+                            f"leads to {transaction.amount - owr_amount} deposited in employment income"
+                            f"and {owr_amount} deposited in foreign income (OWR)",
+                            date_index,
+                            None,
+                            None,
+                            round_decimal(transaction.amount, 2),
+                            )
+                        else:
+                            # In arising basis tax years, all the RSU amount is considered taxed
+                            composition.add_money(date_index.year, MixedFundMoneyCategory.EMPLOYMENT_INCOME, transaction.amount)
+
+                            LOGGER.debug(
+                            f"[MIXED FUND EVENT] RSU vesting in {broker} in a tax year filed on arising basis "
+                            f"leads to {transaction.amount} deposited in employment income",
+                            date_index,
+                            None,
+                            None,
+                            round_decimal(transaction.amount, 2),
+                            )
+                    if transaction.action == ActionType.TRANSFER:
+                        if transaction.amount > 0:
+                            if transaction.origin ==
+
                     #post process the transactionS of that day, taking into account there can be several brokers
 
         self.process_dividends()

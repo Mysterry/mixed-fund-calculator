@@ -338,6 +338,7 @@ class MixedFund:
     broker: str
     mixed_fund_transaction_log: list[BrokerTransaction]
     processed_mixed_fund_transaction_log: list[ProcessedMixedFundTransaction]
+    mixed_fund_composition: MixedFundComposition
 
     def __init__(
         self,
@@ -347,6 +348,7 @@ class MixedFund:
         self.broker = broker
         self.mixed_fund_transaction_log = []
         self.processed_mixed_fund_transaction_log = []
+        self.mixed_fund_composition = MixedFundComposition(broker)
 
     def __repr__(self) -> str:
        """Return string representation."""
