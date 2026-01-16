@@ -52,6 +52,16 @@ class TaxFilingBasis(Enum):
     REMITTANCE = 1
 
 
+class Destination(Enum):
+    OVERSEAS = 0
+    UK = 1
+
+
+class Origin(Enum):
+    NON_UK_TAXED = 0
+    UK_TAXED = 1
+
+
 @dataclass
 class TaxFilings:
     """Class representing a history of tax filing basis choices per tax year (arising or remittance basis)"""

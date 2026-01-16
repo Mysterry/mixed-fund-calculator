@@ -11,7 +11,7 @@ import logging
 import sys
 from typing import TYPE_CHECKING
 
-from cgt_calc.parsers.remittance import OWREvent, TaxFilings, TaxFilingBasis
+from cgt_calc.parsers.remittance import OWREvent, TaxFilings, TaxFilingBasis, Destination, Origin
 from . import render_latex
 from .args_parser import create_parser
 from .const import (
@@ -1601,7 +1601,35 @@ class CapitalGainsCalculator:
                             )
                     if transaction.action == ActionType.TRANSFER:
                         if transaction.amount > 0:
-                            if transaction.origin ==
+                            if transaction.origin == Origin.NON_UK_TAXED:
+                                # If this is a non-UK-taxed transfer-in
+                                composition.add_money(date_index.year, MixedFundMoneyCategory.RELEVANT_FOREIGN_INCOME, transaction.amount)
+
+                                LOGGER.debug(
+                                f"[MIXED FUND EVENT] Transfer-in in {broker} of non-UK taxed money "
+                                f"leads to {transaction.amount} deposited in foreign income",
+                                date_index,
+                                None,
+                                None,
+                                round_decimal(transaction.amount, 2),
+                                )
+                            else:
+                                # If this is a UK-taxed transfer-in
+                                composition.add_money(date_index.year, MixedFundMoneyCategory.EMPLOYMENT_INCOME, transaction.amount)
+
+                                LOGGER.debug(
+                                f"[MIXED FUND EVENT] Transfer-in in {broker} of UK taxed money "
+                                f"leads to {transaction.amount} deposited in employment income",
+                                date_index,
+                                None,
+                                None,
+                                round_decimal(transaction.amount, 2),
+                                )
+                        else:
+                            withdrawal = -transaction.amount
+                            if transaction.destination == Destination.OVERSEAS:
+                                # If this is a transfer out to overseas, then we take the money pro-rated on all buckets
+                                composition.withdraw_money_prorated(withdrawal)
 
                     #post process the transactionS of that day, taking into account there can be several brokers
 

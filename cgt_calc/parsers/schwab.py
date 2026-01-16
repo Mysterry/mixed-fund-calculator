@@ -20,6 +20,8 @@ from cgt_calc.exceptions import (
 )
 from cgt_calc.model import ActionType, BrokerTransaction
 
+from remittance import Destination, Origin
+
 if TYPE_CHECKING:
     from pathlib import Path
 
@@ -223,9 +225,16 @@ class SchwabTransfer(BrokerTransaction):
             else None
         )
         destination_header = SchwabTransfersFileRequiredHeaders.DESTINATION.value
-        destination = row_dict[destination_header] if row_dict[destination_header] != "" else None
-        origin_header = SchwabTransfersFileRequiredHeaders.ORIGIN.value
-        origin = row_dict[origin_header] if row_dict[origin_header] != "" else None
+        if row_dict[destination_header] in [name for name in Destination.__members__]:
+            destination = Destination[row_dict[destination_header]]
+        else:
+            destination = None
+
+        origin_header = SchwabTransfersFileRequiredHeaders.DESTINATION.value
+        if row_dict[origin_header] in [name for name in Destination.__members__]:
+            origin = Destination[row_dict[origin_header]]
+        else:
+            origin = None
 
         try:
             assert action in [ActionType.TRANSFER, ActionType.WIRE_FUNDS_RECEIVED]
@@ -235,14 +244,14 @@ class SchwabTransfer(BrokerTransaction):
                 f"Transfers file contains a non-transfer action transaction {self.raw_action}"
             ) from err
         try:
-            assert (action != ActionType.TRANSFER or (destination in ["UK", "Overseas"]))
+            assert (action != ActionType.TRANSFER or (destination in [name for name in Destination.__members__]))
         except AssertionError as err:
             raise ParsingError(
                 file,
                 f"Transfers file contains a transfer-out action transaction whose destination is not UK or Overseas: {destination}"
             ) from err
         try:
-            assert (action != ActionType.WIRE_FUNDS_RECEIVED or (origin in ["UK taxed", "Not UK taxed"]))
+            assert (action != ActionType.WIRE_FUNDS_RECEIVED or (origin in [name for name in Origin.__members__]))
         except AssertionError as err:
             raise ParsingError(
                 file,
