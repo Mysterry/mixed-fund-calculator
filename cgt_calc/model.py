@@ -328,8 +328,19 @@ class MixedFundComposition:
 
         return withdrawals
 
+def aggregate_dicts(
+    a: dict[int, dict[MixedFundMoneyCategory, Decimal]],
+    b: dict[int, dict[MixedFundMoneyCategory, Decimal]],
+) -> dict[int, dict[MixedFundMoneyCategory, Decimal]]:
 
+    result = defaultdict(lambda: defaultdict(Decimal))
 
+    for source in (a, b):
+        for tax_year, categories in source.items():
+            for category, amount in categories.items():
+                result[tax_year][category] += amount
+
+    return {tax_year: dict(cats) for tax_year, cats in result.items()}
 
 @dataclass
 class MixedFund:

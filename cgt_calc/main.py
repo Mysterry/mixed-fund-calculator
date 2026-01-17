@@ -62,7 +62,8 @@ from .model import (
     MixedFund,
     ProcessedMixedFundTransaction,
     MixedFundsReport,
-    MixedFundMoneyCategory
+    MixedFundMoneyCategory,
+    aggregate_dicts
 )
 from .parsers import read_broker_transactions
 from .parsers.remittance import read_remittance_basis, read_owr
@@ -1554,19 +1555,20 @@ class CapitalGainsCalculator:
 
 
 # ActionType.SELL,
-# ActionType.TRANSFER,
+## ActionType.TRANSFER,
 ## ActionType.STOCK_ACTIVITY,
-# ActionType.DIVIDEND,
-# ActionType.FEE,
-# ActionType.ADJUSTMENT,
-# ActionType.INTEREST,
-# ActionType.WIRE_FUNDS_RECEIVED,
-# ActionType.NRA_TAX_ADJ,
+## ActionType.DIVIDEND,
+## ActionType.FEE,
+## ActionType.ADJUSTMENT,
+## ActionType.INTEREST,
+## ActionType.WIRE_FUNDS_RECEIVED,
 
 
             for broker in self.mixed_funds.keys():
                 mixed_fund = self.mixed_funds[broker]
                 composition = mixed_fund.mixed_fund_composition
+                tax_year_movements = defaultdict(lambda: defaultdict(Decimal))
+
                 for transaction in [mixed_fund_transaction for mixed_fund_transaction
                                     in mixed_fund.processed_mixed_fund_transaction_log
                                     if mixed_fund_transaction.date == date_index]:
@@ -1575,63 +1577,175 @@ class CapitalGainsCalculator:
                             # If there is an award earning in a remittance basis year, the OWR  part of its earnings is considered as foreign income
                             # It cannot be higher than the post-amount deposited into the account
                             owr_amount = min(transaction.pre_tax_quantity * transaction.price * transaction.owr_rate, transaction.amount)
-                            composition.add_money(date_index.year, MixedFundMoneyCategory.RELEVANT_FOREIGN_EARNINGS, owr_amount)
-                            composition.add_money(date_index.year, MixedFundMoneyCategory.EMPLOYMENT_INCOME, transaction.amount - owr_amount)
+                            owr = composition.add_money(date_index.year, MixedFundMoneyCategory.RELEVANT_FOREIGN_EARNINGS, owr_amount)
+                            non_owr = composition.add_money(date_index.year, MixedFundMoneyCategory.EMPLOYMENT_INCOME, transaction.amount - owr_amount - transaction.fees)
+                            movement = aggregate_dicts(owr, non_owr)
 
                             LOGGER.debug(
                             f"[MIXED FUND EVENT] RSU vesting in {broker} in a tax year filed on remittance basis "
-                            f"leads to {transaction.amount - owr_amount} deposited in employment income"
+                            f"leads to {transaction.amount - owr_amount - transaction.fees} deposited in employment income"
                             f"and {owr_amount} deposited in foreign income (OWR)",
                             date_index,
                             None,
                             None,
-                            round_decimal(transaction.amount, 2),
+                            round_decimal(transaction.amount - transaction.fees, 2),
                             )
+                            if date_index >= tax_year_start_index:
+                                tax_year_movements = aggregate_dicts(tax_year_movements, movement)
                         else:
                             # In arising basis tax years, all the RSU amount is considered taxed
-                            composition.add_money(date_index.year, MixedFundMoneyCategory.EMPLOYMENT_INCOME, transaction.amount)
+                            movement = composition.add_money(date_index.year, MixedFundMoneyCategory.EMPLOYMENT_INCOME, transaction.amount - transaction.fees)
 
                             LOGGER.debug(
                             f"[MIXED FUND EVENT] RSU vesting in {broker} in a tax year filed on arising basis "
-                            f"leads to {transaction.amount} deposited in employment income",
+                            f"leads to {transaction.amount - transaction.fees} deposited in employment income",
                             date_index,
                             None,
                             None,
-                            round_decimal(transaction.amount, 2),
+                            round_decimal(transaction.amount - transaction.fees, 2),
                             )
-                    if transaction.action == ActionType.TRANSFER:
-                        if transaction.amount > 0:
-                            if transaction.origin == Origin.NON_UK_TAXED:
-                                # If this is a non-UK-taxed transfer-in
-                                composition.add_money(date_index.year, MixedFundMoneyCategory.RELEVANT_FOREIGN_INCOME, transaction.amount)
-
-                                LOGGER.debug(
-                                f"[MIXED FUND EVENT] Transfer-in in {broker} of non-UK taxed money "
-                                f"leads to {transaction.amount} deposited in foreign income",
-                                date_index,
-                                None,
-                                None,
-                                round_decimal(transaction.amount, 2),
-                                )
-                            else:
-                                # If this is a UK-taxed transfer-in
-                                composition.add_money(date_index.year, MixedFundMoneyCategory.EMPLOYMENT_INCOME, transaction.amount)
-
-                                LOGGER.debug(
-                                f"[MIXED FUND EVENT] Transfer-in in {broker} of UK taxed money "
-                                f"leads to {transaction.amount} deposited in employment income",
-                                date_index,
-                                None,
-                                None,
-                                round_decimal(transaction.amount, 2),
-                                )
+                            if date_index >= tax_year_start_index:
+                                tax_year_movements = aggregate_dicts(tax_year_movements, movement)
+                    elif transaction.action == ActionType.WIRE_FUNDS_RECEIVED:
+                        if transaction.origin == Origin.NON_UK_TAXED:
+                            # If this is a non-UK-taxed transfer-in, add in the foreign income
+                            movement = composition.add_money(date_index.year, MixedFundMoneyCategory.RELEVANT_FOREIGN_INCOME, transaction.amount - transaction.fees)
+                            LOGGER.debug(
+                            f"[MIXED FUND EVENT] Transfer-in in {broker} of non-UK taxed money "
+                            f"leads to {transaction.amount - transaction.fees} deposited in foreign income",
+                            date_index,
+                            None,
+                            None,
+                            round_decimal(transaction.amount - transaction.fees, 2),
+                            )
+                            if date_index >= tax_year_start_index:
+                                tax_year_movements = aggregate_dicts(tax_year_movements, movement)
                         else:
-                            withdrawal = -transaction.amount
-                            if transaction.destination == Destination.OVERSEAS:
-                                # If this is a transfer out to overseas, then we take the money pro-rated on all buckets
-                                composition.withdraw_money_prorated(withdrawal)
+                            # If this is a UK-taxed transfer-in, add in employment income
+                            # Positive fees & adjustments will also go there
+                            movement = composition.add_money(date_index.year, MixedFundMoneyCategory.EMPLOYMENT_INCOME, transaction.amount - transaction.fees)
+                            LOGGER.debug(
+                            f"[MIXED FUND EVENT] Transfer-in in {broker} of UK taxed money "
+                            f"leads to {transaction.amount - transaction.fees} deposited in employment income",
+                            date_index,
+                            None,
+                            None,
+                            round_decimal(transaction.amount - transaction.fees, 2),
+                            )
+                            if date_index >= tax_year_start_index:
+                                tax_year_movements = aggregate_dicts(tax_year_movements, movement)
+                    elif transaction.action == ActionType.TRANSFER:
+                        # Transfers have negative amount
+                        withdrawal = -transaction.amount - transaction.fees
+                        if transaction.destination == Destination.OVERSEAS:
+                            # If this is a transfer out to overseas, then we take the money prorated on all buckets, as per RDRM35420
+                            movement = composition.withdraw_money_prorated(withdrawal)
+                            LOGGER.debug(
+                            f"[MIXED FUND EVENT] Transfer-out in {broker} to overseas destination"
+                            f"leads to {withdrawal} removed prorated on all buckets",
+                            date_index,
+                            None,
+                            None,
+                            round_decimal(transaction.amount - transaction.fees, 2),
+                            )
+                            if date_index >= tax_year_start_index:
+                                tax_year_movements = aggregate_dicts(tax_year_movements, movement)
+                        else:
+                            # If this is a transfer out to the UK (=remittance), then the ordering rules apply as per RDRM35240
+                            movement = composition.withdraw_money_prorated(withdrawal)
 
-                    #post process the transactionS of that day, taking into account there can be several brokers
+                            LOGGER.debug(
+                            f"[MIXED FUND EVENT] Transfer-out in {broker} to the UK: remittance"
+                            f"leads to {withdrawal} removed following the ordering rules",
+                            date_index,
+                            None,
+                            None,
+                            round_decimal(transaction.amount - transaction.fees, 2),
+                            )
+                            if date_index >= tax_year_start_index:
+                                tax_year_movements = aggregate_dicts(tax_year_movements, movement)
+                    elif transaction.action in [ActionType.DIVIDEND, ActionType.INTEREST]:
+                        if transaction.tax_at_source:
+                            # Investment gains subject to a foreign tax go to a specific bucket
+                            amount = transaction.amount + transaction.tax_at_source - transaction.fees
+
+                            movement = composition.add_money(date_index.year, MixedFundMoneyCategory.FOREIGN_CHARGEABLE_GAINS_SUBJECT_TO_A_FOREIGN_FAX, amount)
+
+                            LOGGER.debug(
+                            f"[MIXED FUND EVENT] Dividend or interest ({transaction.amount}) accrued in {broker} with foreign tax ({transaction.tax_at_source})"
+                            f"leads to {amount} deposited in foreign gains subject to foreign tax",
+                            date_index,
+                            None,
+                            None,
+                            round_decimal(amount, 2),
+                            )
+                            if date_index >= tax_year_start_index:
+                                tax_year_movements = aggregate_dicts(tax_year_movements, movement)
+                        else:
+                            # Investment gains not subject to a foreign tax have a specific bucket
+                            movement = composition.add_money(date_index.year, MixedFundMoneyCategory.FOREIGN_CHARGEABLE_GAINS, transaction.amount - transaction.fees)
+
+                            LOGGER.debug(
+                            f"[MIXED FUND EVENT] Dividend or interest ({transaction.amount - transaction.fees}) accrued in {broker} without foreign tax"
+                            f"leads to {transaction.amount - transaction.fees} deposited in foreign gains",
+                            date_index,
+                            None,
+                            None,
+                            round_decimal(transaction.amount - transaction.fees, 2),
+                            )
+                            if date_index >= tax_year_start_index:
+                                tax_year_movements = aggregate_dicts(tax_year_movements, movement)
+
+                    elif transaction.action in [ActionType.FEE, ActionType.ADJUSTMENT]:
+                        if amount > 0:
+                            # Adjustments are pure capital
+                            movement = composition.add_money(date_index.year, MixedFundMoneyCategory.OTHER_INCOME, transaction.amount - transaction.fees)
+
+                            LOGGER.debug(
+                            f"[MIXED FUND EVENT] Adjustments accrued in {broker}"
+                            f"leads to {transaction.amount - transaction.fees} deposited in pure capital",
+                            date_index,
+                            None,
+                            None,
+                            round_decimal(transaction.amount - transaction.fees, 2),
+                            )
+                            if date_index >= tax_year_start_index:
+                                tax_year_movements = aggregate_dicts(tax_year_movements, movement)
+                        else:
+                            # Negative fees or adjustments are considered overseas transfers
+                            withdrawal = -transaction.amount - transaction.fees
+                            movement = composition.withdraw_money_prorated(withdrawal)
+                            LOGGER.debug(
+                            f"[MIXED FUND EVENT] Fee/adjustment in {broker} treated as overseas transfer"
+                            f"leads to {withdrawal} removed prorated on all buckets",
+                            date_index,
+                            None,
+                            None,
+                            round_decimal(transaction.amount - transaction.fees, 2),
+                            )
+                            if date_index >= tax_year_start_index:
+                                tax_year_movements = aggregate_dicts(tax_year_movements, movement)
+
+                    elif transaction.action == ActionType.SELL:
+                        allowable_costs = 0
+
+
+                        movement = composition.add_money(date_index.year, MixedFundMoneyCategory.FOREIGN_CHARGEABLE_GAINS, ??)
+
+                        LOGGER.debug(
+                        f"[MIXED FUND EVENT] Sale of {transaction.symbol}in {broker} at {transaction.amount} matched to a cost basis {??} "
+                        f"leads to {???} capital gain",
+                        date_index,
+                        None,
+                        None,
+                        round_decimal(???, 2),
+                        )
+                        if date_index >= tax_year_start_index:
+                            tax_year_movements = aggregate_dicts(tax_year_movements, movement)
+                    else:
+                        raise f"ERROR: a mixed fund transaction is of an unsupported type: {transaction.action}"
+
+
 
         self.process_dividends()
         self.process_interests()
