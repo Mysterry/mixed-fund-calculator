@@ -225,14 +225,14 @@ class SchwabTransfer(BrokerTransaction):
             else None
         )
         destination_header = SchwabTransfersFileRequiredHeaders.DESTINATION.value
-        if row_dict[destination_header] in [name for name in Destination.__members__]:
-            destination = Destination[row_dict[destination_header]]
+        if row_dict[destination_header] in [d.value for d in Destination]:
+            destination = Destination(row_dict[destination_header])
         else:
             destination = None
 
         origin_header = SchwabTransfersFileRequiredHeaders.ORIGIN.value
-        if row_dict[origin_header] in [name for name in Origin.__members__]:
-            origin = Origin[row_dict[origin_header]]
+        if row_dict[origin_header] in [o.value for o in Origin]:
+            origin = Origin(row_dict[origin_header])
         else:
             origin = None
 
@@ -244,14 +244,14 @@ class SchwabTransfer(BrokerTransaction):
                 f"Transfers file contains a non-transfer action transaction {self.raw_action}"
             ) from err
         try:
-            assert (action != ActionType.TRANSFER or (destination in Destination.__members__))
+            assert (action != ActionType.TRANSFER or (isinstance(destination, Destination)))
         except AssertionError as err:
             raise ParsingError(
                 file,
                 f"Transfers file contains a transfer-out action transaction whose destination is not UK or Overseas: {destination}, {row_dict[destination_header]}"
             ) from err
         try:
-            assert (action != ActionType.WIRE_FUNDS_RECEIVED or (origin in Origin.__members__))
+            assert (action != ActionType.WIRE_FUNDS_RECEIVED or (isinstance(origin, Origin)))
         except AssertionError as err:
             raise ParsingError(
                 file,

@@ -226,7 +226,7 @@ class ProcessedMixedFundTransaction:
     action: ActionType
     amount: Decimal | None = None
     quantity: Decimal | None = None
-    fees: Decimal | None = None
+    fees: Decimal | None = Decimal(0)
     price: Decimal | None = None
     symbol: str | None = None
     origin: str | None = None

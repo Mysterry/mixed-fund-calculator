@@ -740,7 +740,7 @@ class CapitalGainsCalculator:
                     / owr_event.working_days
                     * owr_event.vesting_days_in_three_years
                     / owr_event.vesting_days
-                ) if owr_event.working_days != 0 else 0
+                ) if owr_event.working_days != 0 else Decimal(0)
 
                 processed_mixed_fund_transaction = ProcessedMixedFundTransaction(
                     broker=transaction.broker,
@@ -1429,6 +1429,7 @@ class CapitalGainsCalculator:
         self.portfolio.clear()
 
         calculation_log: CalculationLog = defaultdict(dict)
+        all_sales_log: CalculationLog = defaultdict(dict)
 
         for date_index in (
             begin_index + datetime.timedelta(days=x)
@@ -1454,23 +1455,47 @@ class CapitalGainsCalculator:
                         symbol,
                         date_index,
                     )
+
+                    transaction_amount = self.disposal_list[date_index][
+                        symbol
+                    ].amount
+                    transaction_fees = self.disposal_list[date_index][symbol].fees
+                    transaction_disposal_proceeds = (
+                        transaction_amount + transaction_fees
+                    )
+                    transaction_quantity = self.disposal_list[date_index][
+                        symbol
+                    ].quantity
+
+                    calculated_quantity = Decimal(0)
+                    calculated_proceeds = Decimal(0)
+                    calculated_gain = Decimal(0)
+                    for entry in calculation_entries:
+                        calculated_quantity += entry.quantity
+                        calculated_proceeds += entry.amount + entry.fees
+                        calculated_gain += entry.gain
+                    assert transaction_quantity == calculated_quantity
+                    assert round_decimal(
+                        transaction_disposal_proceeds, 10
+                    ) == round_decimal(calculated_proceeds, 10), (
+                        f"{transaction_disposal_proceeds} != {calculated_proceeds}"
+                    )
+                    assert transaction_capital_gain == round_decimal(
+                        calculated_gain, 2
+                    )
+
+                    all_sales_log[date_index][f"sell${symbol}"] = (
+                        calculation_entries
+                    )
+
                     if date_index >= tax_year_start_index:
                         disposal_count += 1
                         disposed_symbols.add(symbol)
-                        transaction_amount = self.disposal_list[date_index][
-                            symbol
-                        ].amount
-                        transaction_fees = self.disposal_list[date_index][symbol].fees
-                        transaction_disposal_proceeds = (
-                            transaction_amount + transaction_fees
-                        )
                         disposal_proceeds += transaction_disposal_proceeds
                         allowable_costs += (
                             transaction_disposal_proceeds - transaction_capital_gain
                         )
-                        transaction_quantity = self.disposal_list[date_index][
-                            symbol
-                        ].quantity
+
                         LOGGER.debug(
                             "[TAX YEAR CGT EVENT] Disposal on %s of %s, quantity %d leads to capital gain £%s",
                             date_index,
@@ -1478,22 +1503,7 @@ class CapitalGainsCalculator:
                             transaction_quantity,
                             round_decimal(transaction_capital_gain, 2),
                         )
-                        calculated_quantity = Decimal(0)
-                        calculated_proceeds = Decimal(0)
-                        calculated_gain = Decimal(0)
-                        for entry in calculation_entries:
-                            calculated_quantity += entry.quantity
-                            calculated_proceeds += entry.amount + entry.fees
-                            calculated_gain += entry.gain
-                        assert transaction_quantity == calculated_quantity
-                        assert round_decimal(
-                            transaction_disposal_proceeds, 10
-                        ) == round_decimal(calculated_proceeds, 10), (
-                            f"{transaction_disposal_proceeds} != {calculated_proceeds}"
-                        )
-                        assert transaction_capital_gain == round_decimal(
-                            calculated_gain, 2
-                        )
+
                         calculation_log[date_index][f"sell${symbol}"] = (
                             calculation_entries
                         )
@@ -1554,7 +1564,8 @@ class CapitalGainsCalculator:
                     ]
 
 
-            sales_tracker = dict()
+            sales_tracker = defaultdict(Decimal)
+
             for broker in self.mixed_funds.keys():
                 mixed_fund = self.mixed_funds[broker]
                 composition = mixed_fund.mixed_fund_composition
@@ -1567,33 +1578,37 @@ class CapitalGainsCalculator:
                         if self.tax_filings.get(date_index.year) == TaxFilingBasis.REMITTANCE:
                             # If there is an award earning in a remittance basis year, the OWR  part of its earnings is considered as foreign income
                             # It cannot be higher than the post-amount deposited into the account
-                            owr_amount = min(transaction.pre_tax_quantity * transaction.price * transaction.owr_rate, transaction.amount)
+                            owr_amount = min(transaction.pre_tax_quantity * transaction.price * transaction.owr_rate,
+                                             transaction.quantity * transaction.price - transaction.fees)
+
+                            print(transaction.quantity * transaction.price)
+                            print(transaction.fees)
+                            print(transaction.pre_tax_quantity * transaction.price)
+                            print(owr_amount)
                             owr = composition.add_money(date_index.year, MixedFundMoneyCategory.RELEVANT_FOREIGN_EARNINGS, owr_amount)
-                            non_owr = composition.add_money(date_index.year, MixedFundMoneyCategory.EMPLOYMENT_INCOME, transaction.amount - owr_amount - transaction.fees)
+                            non_owr = composition.add_money(date_index.year, MixedFundMoneyCategory.EMPLOYMENT_INCOME, transaction.quantity * transaction.price - owr_amount - transaction.fees)
                             movement = aggregate_dicts(owr, non_owr)
 
                             LOGGER.debug(
-                            f"[MIXED FUND EVENT] RSU vesting in {broker} in a tax year filed on remittance basis "
-                            f"leads to {transaction.amount - owr_amount - transaction.fees} deposited in employment income"
-                            f"and {owr_amount} deposited in foreign income (OWR)",
+                            "[MIXED FUND EVENT] RSU vesting on %s in %s in a tax year filed on remittance basis "
+                            "leads to £%s deposited in employment income and %s deposited in foreign income (OWR)",
                             date_index,
-                            None,
-                            None,
-                            round_decimal(transaction.amount - transaction.fees, 2),
+                            broker,
+                            round_decimal(transaction.quantity * transaction.price - owr_amount - transaction.fees, 2),
+                            round_decimal(owr_amount, 2),
                             )
                             if date_index >= tax_year_start_index:
                                 tax_year_movements = aggregate_dicts(tax_year_movements, movement)
                         else:
                             # In arising basis tax years, all the RSU amount is considered taxed
-                            movement = composition.add_money(date_index.year, MixedFundMoneyCategory.EMPLOYMENT_INCOME, transaction.amount - transaction.fees)
+                            movement = composition.add_money(date_index.year, MixedFundMoneyCategory.EMPLOYMENT_INCOME, transaction.quantity * transaction.price - transaction.fees)
 
                             LOGGER.debug(
-                            f"[MIXED FUND EVENT] RSU vesting in {broker} in a tax year filed on arising basis "
-                            f"leads to {transaction.amount - transaction.fees} deposited in employment income",
+                            "[MIXED FUND EVENT] RSU vesting on %s in %s in a tax year filed on arising basis "
+                            "leads to £%s deposited in employment income",
                             date_index,
-                            None,
-                            None,
-                            round_decimal(transaction.amount - transaction.fees, 2),
+                            broker,
+                            round_decimal(transaction.quantity * transaction.price - transaction.fees, 2),
                             )
                             if date_index >= tax_year_start_index:
                                 tax_year_movements = aggregate_dicts(tax_year_movements, movement)
@@ -1602,11 +1617,10 @@ class CapitalGainsCalculator:
                             # If this is a non-UK-taxed transfer-in, add in the foreign income
                             movement = composition.add_money(date_index.year, MixedFundMoneyCategory.RELEVANT_FOREIGN_INCOME, transaction.amount - transaction.fees)
                             LOGGER.debug(
-                            f"[MIXED FUND EVENT] Transfer-in in {broker} of non-UK taxed money "
-                            f"leads to {transaction.amount - transaction.fees} deposited in foreign income",
+                            "[MIXED FUND EVENT] Transfer-in on %s in %s of non-UK taxed money leads to £%s "
+                            "deposited in foreign income",
                             date_index,
-                            None,
-                            None,
+                            broker,
                             round_decimal(transaction.amount - transaction.fees, 2),
                             )
                             if date_index >= tax_year_start_index:
@@ -1616,11 +1630,10 @@ class CapitalGainsCalculator:
                             # Positive fees & adjustments will also go there
                             movement = composition.add_money(date_index.year, MixedFundMoneyCategory.EMPLOYMENT_INCOME, transaction.amount - transaction.fees)
                             LOGGER.debug(
-                            f"[MIXED FUND EVENT] Transfer-in in {broker} of UK taxed money "
-                            f"leads to {transaction.amount - transaction.fees} deposited in employment income",
+                            "[MIXED FUND EVENT] Transfer-in on %s in %s of UK taxed money leads to £%s deposited "
+                            "in employment income",
                             date_index,
-                            None,
-                            None,
+                            broker,
                             round_decimal(transaction.amount - transaction.fees, 2),
                             )
                             if date_index >= tax_year_start_index:
@@ -1632,11 +1645,10 @@ class CapitalGainsCalculator:
                             # If this is a transfer out to overseas, then we take the money prorated on all buckets, as per RDRM35420
                             movement = composition.withdraw_money_prorated(withdrawal)
                             LOGGER.debug(
-                            f"[MIXED FUND EVENT] Transfer-out in {broker} to overseas destination"
-                            f"leads to {withdrawal} removed prorated on all buckets",
+                            "[MIXED FUND EVENT] Transfer-out on %s in %s to overseas destination leads to £%s "
+                            "removed prorated on all buckets",
                             date_index,
-                            None,
-                            None,
+                            broker,
                             round_decimal(transaction.amount - transaction.fees, 2),
                             )
                             if date_index >= tax_year_start_index:
@@ -1646,11 +1658,9 @@ class CapitalGainsCalculator:
                             movement = composition.withdraw_money_prorated(withdrawal)
 
                             LOGGER.debug(
-                            f"[MIXED FUND EVENT] Transfer-out in {broker} to the UK: remittance"
-                            f"leads to {withdrawal} removed following the ordering rules",
+                            "[MIXED FUND EVENT] Transfer-out on %s in %s to the UK: remittance leads to £%s removed following the ordering rules",
                             date_index,
-                            None,
-                            None,
+                            broker,
                             round_decimal(transaction.amount - transaction.fees, 2),
                             )
                             if date_index >= tax_year_start_index:
@@ -1663,12 +1673,13 @@ class CapitalGainsCalculator:
                             movement = composition.add_money(date_index.year, MixedFundMoneyCategory.FOREIGN_CHARGEABLE_GAINS_SUBJECT_TO_A_FOREIGN_FAX, amount)
 
                             LOGGER.debug(
-                            f"[MIXED FUND EVENT] Dividend or interest ({transaction.amount}) accrued in {broker} with foreign tax ({transaction.tax_at_source})"
-                            f"leads to {amount} deposited in foreign gains subject to foreign tax",
+                            "[MIXED FUND EVENT] Dividend or interest on %s in %s accrued: £%s  "
+                            "with foreign tax (£%s) leads to £%s deposited in foreign gains subject to foreign tax",
                             date_index,
-                            None,
-                            None,
-                            round_decimal(amount, 2),
+                            broker,
+                            round_decimal(transaction.amount - transaction.fees, 2),
+                            round_decimal(-transaction.tax_at_source, 2),
+                            round_decimal(amount, 2)
                             )
                             if date_index >= tax_year_start_index:
                                 tax_year_movements = aggregate_dicts(tax_year_movements, movement)
@@ -1677,11 +1688,10 @@ class CapitalGainsCalculator:
                             movement = composition.add_money(date_index.year, MixedFundMoneyCategory.FOREIGN_CHARGEABLE_GAINS, transaction.amount - transaction.fees)
 
                             LOGGER.debug(
-                            f"[MIXED FUND EVENT] Dividend or interest ({transaction.amount - transaction.fees}) accrued in {broker} without foreign tax"
-                            f"leads to {transaction.amount - transaction.fees} deposited in foreign gains",
+                            "[MIXED FUND EVENT] Dividend or interest on %s in %s accrued "
+                            "without foreign tax leads to £%s deposited in foreign gains",
                             date_index,
-                            None,
-                            None,
+                            broker,
                             round_decimal(transaction.amount - transaction.fees, 2),
                             )
                             if date_index >= tax_year_start_index:
@@ -1693,11 +1703,10 @@ class CapitalGainsCalculator:
                             movement = composition.add_money(date_index.year, MixedFundMoneyCategory.OTHER_INCOME, transaction.amount - transaction.fees)
 
                             LOGGER.debug(
-                            f"[MIXED FUND EVENT] Adjustments accrued in {broker}"
-                            f"leads to {transaction.amount - transaction.fees} deposited in pure capital",
+                            "[MIXED FUND EVENT] Adjustments accrued on %s in %s leads to £%s deposited "
+                            "in pure capital",
                             date_index,
-                            None,
-                            None,
+                            broker,
                             round_decimal(transaction.amount - transaction.fees, 2),
                             )
                             if date_index >= tax_year_start_index:
@@ -1707,12 +1716,11 @@ class CapitalGainsCalculator:
                             withdrawal = -transaction.amount - transaction.fees
                             movement = composition.withdraw_money_prorated(withdrawal)
                             LOGGER.debug(
-                            f"[MIXED FUND EVENT] Fee/adjustment in {broker} treated as overseas transfer"
-                            f"leads to {withdrawal} removed prorated on all buckets",
+                            "[MIXED FUND EVENT] Fee/adjustment on %s in %s treated as overseas transfer leads to "
+                            "£%s removed prorated on all buckets",
                             date_index,
-                            None,
-                            None,
-                            round_decimal(transaction.amount - transaction.fees, 2),
+                            broker,
+                            round_decimal(transaction.amount + transaction.fees, 2),
                             )
                             if date_index >= tax_year_start_index:
                                 tax_year_movements = aggregate_dicts(tax_year_movements, movement)
@@ -1720,7 +1728,7 @@ class CapitalGainsCalculator:
                     elif transaction.action == ActionType.SELL:
                         # For sales, we need to match to the right CGT events to find the cost basis
                         # First, get all cost bases for the disposals of this symbol on that date
-                        matchable_sales = calculation_log[date_index][f"sell${transaction.symbol}"]
+                        matchable_sales = all_sales_log[date_index][f"sell${transaction.symbol}"]
                         cost_bases = []
 
                         for rule in [RuleType.SAME_DAY, RuleType.BED_AND_BREAKFAST, RuleType.SECTION_104]:
@@ -1759,18 +1767,20 @@ class CapitalGainsCalculator:
                             raise ValueError("Not enough calculation entries to satisfy sale amount")
 
 
-                        for sale in sales:
+                        for quantity, rule, cost_basis in sales:
 
-                            chargeable_gain = (transaction.price - sale.cost_basis) * sale.quantity - transaction.fees * sale.quantity  / transaction.quantity
+                            chargeable_gain = (transaction.price - cost_basis) * quantity - transaction.fees * quantity  / transaction.quantity
                             if chargeable_gain > 0:
                                 movement = composition.add_money(date_index.year, MixedFundMoneyCategory.FOREIGN_CHARGEABLE_GAINS, chargeable_gain)
 
                                 LOGGER.debug(
-                                f"[MIXED FUND EVENT] Sale of {transaction.symbol}in {broker}, {sale.quantity} matched to a {sale.rule.name} event "
-                                f"leads to {chargeable_gain} capital gain",
+                                "[MIXED FUND EVENT] %s sale on %s in %s of %s units via %s "
+                                 "leads to £%s capital gain",
+                                 transaction.symbol,
                                 date_index,
-                                None,
-                                None,
+                                broker,
+                                quantity,
+                                rule.name,
                                 round_decimal(chargeable_gain, 2),
                                 )
                                 if date_index >= tax_year_start_index:

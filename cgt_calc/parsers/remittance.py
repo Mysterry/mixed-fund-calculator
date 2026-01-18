@@ -94,10 +94,10 @@ class OWREvent:
     broker: str
     symbol: str
     quantity: Decimal
-    vesting_days_in_three_years: int
-    vesting_days: int
-    working_days: int
-    overseas_working_days: int
+    vesting_days_in_three_years: Decimal
+    vesting_days: Decimal
+    working_days: Decimal
+    overseas_working_days: Decimal
 
     def __init__(self,
                  row_dict: OrderedDict[str, str],
@@ -119,13 +119,13 @@ class OWREvent:
         quantity_header = OWRFileRequiredHeaders.QUANTITY.value
         self.quantity = Decimal(row_dict[quantity_header])
         vesting_days_in_three_years_header = OWRFileRequiredHeaders.VESTING_DAYS_IN_THREE_YEARS.value
-        self.vesting_days_in_three_years = int(row_dict[vesting_days_in_three_years_header])
+        self.vesting_days_in_three_years = Decimal(row_dict[vesting_days_in_three_years_header])
         vesting_days_header = OWRFileRequiredHeaders.VESTING_DAYS.value
-        self.vesting_days = int(row_dict[vesting_days_header])
+        self.vesting_days = Decimal(row_dict[vesting_days_header])
         working_days_header = OWRFileRequiredHeaders.WORKING_DAYS.value
-        self.working_days = int(row_dict[working_days_header])
+        self.working_days = Decimal(row_dict[working_days_header])
         overseas_working_days_header = OWRFileRequiredHeaders.OVERSEAS_WORKING_DAYS.value
-        self.overseas_working_days = int(row_dict[overseas_working_days_header])
+        self.overseas_working_days = Decimal(row_dict[overseas_working_days_header])
 
 def read_remittance_basis(
     remittance_basis_file: Path | None,
