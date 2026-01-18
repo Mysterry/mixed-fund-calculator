@@ -20,7 +20,7 @@ from cgt_calc.exceptions import (
 )
 from cgt_calc.model import ActionType, BrokerTransaction
 
-from remittance import Destination, Origin
+from .remittance import Destination, Origin
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -230,9 +230,9 @@ class SchwabTransfer(BrokerTransaction):
         else:
             destination = None
 
-        origin_header = SchwabTransfersFileRequiredHeaders.DESTINATION.value
-        if row_dict[origin_header] in [name for name in Destination.__members__]:
-            origin = Destination[row_dict[origin_header]]
+        origin_header = SchwabTransfersFileRequiredHeaders.ORIGIN.value
+        if row_dict[origin_header] in [name for name in Origin.__members__]:
+            origin = Origin[row_dict[origin_header]]
         else:
             origin = None
 
@@ -244,14 +244,14 @@ class SchwabTransfer(BrokerTransaction):
                 f"Transfers file contains a non-transfer action transaction {self.raw_action}"
             ) from err
         try:
-            assert (action != ActionType.TRANSFER or (destination in [name for name in Destination.__members__]))
+            assert (action != ActionType.TRANSFER or (destination in Destination.__members__))
         except AssertionError as err:
             raise ParsingError(
                 file,
-                f"Transfers file contains a transfer-out action transaction whose destination is not UK or Overseas: {destination}"
+                f"Transfers file contains a transfer-out action transaction whose destination is not UK or Overseas: {destination}, {row_dict[destination_header]}"
             ) from err
         try:
-            assert (action != ActionType.WIRE_FUNDS_RECEIVED or (origin in [name for name in Origin.__members__]))
+            assert (action != ActionType.WIRE_FUNDS_RECEIVED or (origin in Origin.__members__))
         except AssertionError as err:
             raise ParsingError(
                 file,

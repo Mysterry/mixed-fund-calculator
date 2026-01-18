@@ -52,14 +52,14 @@ class TaxFilingBasis(Enum):
     REMITTANCE = 1
 
 
-class Destination(Enum):
-    OVERSEAS = 0
-    UK = 1
+class Destination(str, Enum):
+    OVERSEAS = "Overseas"
+    UK = "UK"
 
 
 class Origin(Enum):
-    NON_UK_TAXED = 0
-    UK_TAXED = 1
+    NON_UK_TAXED = "Non UK taxed"
+    UK_TAXED = "UK taxed"
 
 
 @dataclass

@@ -1554,16 +1554,7 @@ class CapitalGainsCalculator:
                     ]
 
 
-# ActionType.SELL,
-## ActionType.TRANSFER,
-## ActionType.STOCK_ACTIVITY,
-## ActionType.DIVIDEND,
-## ActionType.FEE,
-## ActionType.ADJUSTMENT,
-## ActionType.INTEREST,
-## ActionType.WIRE_FUNDS_RECEIVED,
-
-
+            sales_tracker = dict()
             for broker in self.mixed_funds.keys():
                 mixed_fund = self.mixed_funds[broker]
                 composition = mixed_fund.mixed_fund_composition
@@ -1727,21 +1718,63 @@ class CapitalGainsCalculator:
                                 tax_year_movements = aggregate_dicts(tax_year_movements, movement)
 
                     elif transaction.action == ActionType.SELL:
-                        allowable_costs = 0
+                        # For sales, we need to match to the right CGT events to find the cost basis
+                        # First, get all cost bases for the disposals of this symbol on that date
+                        matchable_sales = calculation_log[date_index][f"sell${transaction.symbol}"]
+                        cost_bases = []
+
+                        for rule in [RuleType.SAME_DAY, RuleType.BED_AND_BREAKFAST, RuleType.SECTION_104]:
+                            for entry in [entry for entry in matchable_sales if entry.rule_type == rule]:
+                                cost_basis = entry.allowable_cost / entry.quantity
+                                cost_bases.append(
+                                    [entry.quantity, rule, cost_basis]
+                                )
+
+                        # Iterate over them to find enough events to cover the sold quantity. Skip events corresponding
+                        # to quantities already sold for the same symbol on the same day on other brokers
+                        sales = []
+                        skip_remaining = sales_tracker[transaction.symbol]
+                        take_remaining = transaction.quantity
+
+                        for quantity, rule, cost_basis in cost_bases:
+                            if take_remaining <= 0:
+                                break
+
+                            # Skip already-used
+                            if skip_remaining >= quantity:
+                                skip_remaining -= quantity
+                                continue
+                            elif skip_remaining > 0:
+                                quantity -= skip_remaining
+                                skip_remaining = Decimal(0)
+
+                            # Take quantity
+                            taken = min(quantity, take_remaining)
+
+                            sales.append((taken, rule, cost_basis))
+
+                            take_remaining -= taken
+
+                        if take_remaining > 0:
+                            raise ValueError("Not enough calculation entries to satisfy sale amount")
 
 
-                        movement = composition.add_money(date_index.year, MixedFundMoneyCategory.FOREIGN_CHARGEABLE_GAINS, ??)
+                        for sale in sales:
 
-                        LOGGER.debug(
-                        f"[MIXED FUND EVENT] Sale of {transaction.symbol}in {broker} at {transaction.amount} matched to a cost basis {??} "
-                        f"leads to {???} capital gain",
-                        date_index,
-                        None,
-                        None,
-                        round_decimal(???, 2),
-                        )
-                        if date_index >= tax_year_start_index:
-                            tax_year_movements = aggregate_dicts(tax_year_movements, movement)
+                            chargeable_gain = (transaction.price - sale.cost_basis) * sale.quantity - transaction.fees * sale.quantity  / transaction.quantity
+                            if chargeable_gain > 0:
+                                movement = composition.add_money(date_index.year, MixedFundMoneyCategory.FOREIGN_CHARGEABLE_GAINS, chargeable_gain)
+
+                                LOGGER.debug(
+                                f"[MIXED FUND EVENT] Sale of {transaction.symbol}in {broker}, {sale.quantity} matched to a {sale.rule.name} event "
+                                f"leads to {chargeable_gain} capital gain",
+                                date_index,
+                                None,
+                                None,
+                                round_decimal(chargeable_gain, 2),
+                                )
+                                if date_index >= tax_year_start_index:
+                                    tax_year_movements = aggregate_dicts(tax_year_movements, movement)
                     else:
                         raise f"ERROR: a mixed fund transaction is of an unsupported type: {transaction.action}"
 
