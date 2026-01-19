@@ -280,8 +280,8 @@ class MixedFundComposition:
         -> dict[int, dict[MixedFundMoneyCategory, Decimal]]:
         """Money is added in the relevant category bucket"""
 
-        if amount <= 0:
-            raise ValueError("Cannot add zero or negative amount to a mixed fund")
+        if amount < 0:
+            raise ValueError("Cannot add negative amount to a mixed fund")
         self.buckets[tax_year][category] += amount
         return dict({tax_year: dict({category: amount})})
 

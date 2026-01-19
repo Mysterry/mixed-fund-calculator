@@ -56,6 +56,7 @@ class AwardsTransactionsFileRequiredHeaders(str, Enum):
     SYMBOL = "Symbol"
     FAIR_MARKET_VALUE_PRICE = "FairMarketValuePrice"
     PRE_TAX_QUANTITY = "Quantity"
+    POST_TAX_QUANTITY = "NetSharesDeposited"
 
 
 class SchwabTransfersFileRequiredHeaders(str, Enum):
@@ -165,11 +166,12 @@ def action_from_str(label: str, file: Path) -> ActionType:
 
 @dataclass
 class AwardInfos:
-    """Class to store initial stock prices and full award quantity (pre-tax withholding)"""
+    """Class to store initial stock prices and full award quantity (pre-tax withholding) in the form:
+    (date, symbol, price, pre_tax_quantity, post_tax_quantity)"""
 
-    award_infos: dict[datetime.date, dict[str, dict]]
+    award_infos: list
 
-    def get_initial_infos(self, date: datetime.date, symbol: str) -> tuple[datetime.date, dict]:
+    def get_initial_infos(self, date: datetime.date, symbol: str, quantity: Decimal) -> tuple[datetime.date, Decimal, Decimal]:
         """Get initial stock price at given date."""
         # Award dates may go back for few days, depending on
         # holidays or weekends, so we do a linear search
@@ -177,13 +179,13 @@ class AwardInfos:
         symbol = TICKER_RENAMES.get(symbol, symbol)
         for i in range(7):
             to_search = date - datetime.timedelta(days=i)
+            for info_date, info_symbol, info_price, info_pre_tax_quantity, info_post_tax_quantity in self.award_infos:
+                if info_date == to_search and info_symbol == symbol and info_post_tax_quantity == quantity:
 
-            if (
-                to_search in self.award_infos
-                and symbol in self.award_infos[to_search]
-            ):
-                return to_search, self.award_infos[to_search][symbol]
-        raise KeyError(f"Award is not found for symbol {symbol} for date {date}")
+                    # The value is deleted when accessed to ensure it's accessed only once
+                    self.award_infos.remove((info_date, info_symbol, info_price, info_pre_tax_quantity, info_post_tax_quantity))
+                    return to_search, info_price, info_pre_tax_quantity
+        raise KeyError(f"Award is not found for symbol {symbol} for date {date} & post tax quantity {quantity}")
 
 
 @dataclass
@@ -397,9 +399,9 @@ class SchwabTransaction(BrokerTransaction):
             # for awards which don't match the PDF statements.
             # We want to make sure to match date and price form the awards
             # spreadsheet.
-            _vest_date, awards_infos = awards_infos.get_initial_infos(transaction.date, symbol)
-            transaction.price = awards_infos['initial_price']
-            transaction.pre_tax_quantity = awards_infos['pre_tax_quantity']
+            _vest_date, initial_price, pre_tax_quantity = awards_infos.get_initial_infos(transaction.date, symbol, transaction.quantity)
+            transaction.price = initial_price
+            transaction.pre_tax_quantity = pre_tax_quantity
         if transaction.action in [ActionType.TRANSFER, ActionType.WIRE_FUNDS_RECEIVED]:
             # If a file is provided with transfer annotation, load the data by matching the date/type/amount/descr of the row
             for transfer in transfers:
@@ -733,9 +735,9 @@ def _read_schwab_awards(
     """Read initial stock prices from CSV file."""
     if schwab_award_transactions_file is None:
         LOGGER.warning("No Schwab Award file provided")
-        return AwardInfos(award_infos={})
+        return AwardInfos(award_infos=[])
 
-    award_infos: dict[datetime.date, dict[str, dict]] = defaultdict(dict)
+    award_infos =  []
     headers = []
     lines = []
 
@@ -801,9 +803,17 @@ def _read_schwab_awards(
             if row_dict[pre_tax_quantity_header] != ""
             else None
         )
+        post_tax_quantity_header = AwardsTransactionsFileRequiredHeaders.POST_TAX_QUANTITY.value
+        post_tax_quantity = (
+            Decimal(row_dict[post_tax_quantity_header].replace(",", ""))
+            if row_dict[post_tax_quantity_header] != ""
+            else None
+        )
         if symbol is not None and price is not None and pre_tax_quantity is not None:
             symbol = TICKER_RENAMES.get(symbol, symbol)
-            award_infos[date][symbol] = {'initial_price': price, 'pre_tax_quantity': pre_tax_quantity}
+            award_infos.append(
+                (date, symbol, price, pre_tax_quantity, post_tax_quantity)
+            )
     return AwardInfos(award_infos=award_infos)
 
 

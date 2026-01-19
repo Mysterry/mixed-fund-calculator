@@ -25,7 +25,7 @@ from .const import (
 )
 from .currency_converter import CurrencyConverter
 from .current_price_fetcher import CurrentPriceFetcher
-from .dates import get_tax_year_end, get_tax_year_start, is_date
+from .dates import get_tax_year_end, get_tax_year_start, is_date, get_tax_year_index_from_date
 from .exceptions import (
     AmountMissingError,
     CalculatedAmountDiscrepancyError,
@@ -732,6 +732,7 @@ class CapitalGainsCalculator:
                                                                     )
                     ],
                     min_delta=6, max_delta=0)
+
                 if not owr_event:
                     raise InvalidTransactionError(transaction, message="Couldn't find a matching OWR event for this stock award activity")
 
@@ -1404,15 +1405,6 @@ class CapitalGainsCalculator:
                 if is_interest_fund:
                     self.total_foreign_interest += amount
 
-        def process_transfers(self) -> None:
-            """ Process transfers in or out. Used only for mixed fund bookkeeping, not for CGT"""
-
-            #if transfer in:
-                # update the mixed fund status
-
-            #if transfer out:
-            # update the mixed fund status
-
     def calculate_capital_gain(
         self,
     ) -> CapitalGainsReport:
@@ -1575,25 +1567,22 @@ class CapitalGainsCalculator:
                                     in mixed_fund.processed_mixed_fund_transaction_log
                                     if mixed_fund_transaction.date == date_index]:
                     if transaction.action == ActionType.STOCK_ACTIVITY:
-                        if self.tax_filings.get(date_index.year) == TaxFilingBasis.REMITTANCE:
+                        if self.tax_filings.get(get_tax_year_index_from_date(date_index)) == TaxFilingBasis.REMITTANCE:
                             # If there is an award earning in a remittance basis year, the OWR  part of its earnings is considered as foreign income
                             # It cannot be higher than the post-amount deposited into the account
                             owr_amount = min(transaction.pre_tax_quantity * transaction.price * transaction.owr_rate,
                                              transaction.quantity * transaction.price - transaction.fees)
-
-                            print(transaction.quantity * transaction.price)
-                            print(transaction.fees)
-                            print(transaction.pre_tax_quantity * transaction.price)
-                            print(owr_amount)
                             owr = composition.add_money(date_index.year, MixedFundMoneyCategory.RELEVANT_FOREIGN_EARNINGS, owr_amount)
                             non_owr = composition.add_money(date_index.year, MixedFundMoneyCategory.EMPLOYMENT_INCOME, transaction.quantity * transaction.price - owr_amount - transaction.fees)
                             movement = aggregate_dicts(owr, non_owr)
 
                             LOGGER.debug(
-                            "[MIXED FUND EVENT] RSU vesting on %s in %s in a tax year filed on remittance basis "
+                            "[MIXED FUND EVENT] RSU vesting on %s in %s %s units (%s post-tax) in a tax year filed on remittance basis "
                             "leads to £%s deposited in employment income and %s deposited in foreign income (OWR)",
                             date_index,
                             broker,
+                            transaction.pre_tax_quantity,
+                            transaction.quantity,
                             round_decimal(transaction.quantity * transaction.price - owr_amount - transaction.fees, 2),
                             round_decimal(owr_amount, 2),
                             )
@@ -1604,10 +1593,12 @@ class CapitalGainsCalculator:
                             movement = composition.add_money(date_index.year, MixedFundMoneyCategory.EMPLOYMENT_INCOME, transaction.quantity * transaction.price - transaction.fees)
 
                             LOGGER.debug(
-                            "[MIXED FUND EVENT] RSU vesting on %s in %s in a tax year filed on arising basis "
+                            "[MIXED FUND EVENT] RSU vesting on %s in %s %s units (%s post-tax) in a tax year filed on arising basis "
                             "leads to £%s deposited in employment income",
                             date_index,
                             broker,
+                            transaction.pre_tax_quantity,
+                            transaction.quantity,
                             round_decimal(transaction.quantity * transaction.price - transaction.fees, 2),
                             )
                             if date_index >= tax_year_start_index:
@@ -1649,7 +1640,7 @@ class CapitalGainsCalculator:
                             "removed prorated on all buckets",
                             date_index,
                             broker,
-                            round_decimal(transaction.amount - transaction.fees, 2),
+                            round_decimal(withdrawal, 2),
                             )
                             if date_index >= tax_year_start_index:
                                 tax_year_movements = aggregate_dicts(tax_year_movements, movement)
@@ -1661,7 +1652,7 @@ class CapitalGainsCalculator:
                             "[MIXED FUND EVENT] Transfer-out on %s in %s to the UK: remittance leads to £%s removed following the ordering rules",
                             date_index,
                             broker,
-                            round_decimal(transaction.amount - transaction.fees, 2),
+                            round_decimal(withdrawal, 2),
                             )
                             if date_index >= tax_year_start_index:
                                 tax_year_movements = aggregate_dicts(tax_year_movements, movement)
@@ -1698,7 +1689,7 @@ class CapitalGainsCalculator:
                                 tax_year_movements = aggregate_dicts(tax_year_movements, movement)
 
                     elif transaction.action in [ActionType.FEE, ActionType.ADJUSTMENT]:
-                        if amount > 0:
+                        if transaction.amount > 0:
                             # Adjustments are pure capital
                             movement = composition.add_money(date_index.year, MixedFundMoneyCategory.OTHER_INCOME, transaction.amount - transaction.fees)
 
@@ -1720,7 +1711,7 @@ class CapitalGainsCalculator:
                             "£%s removed prorated on all buckets",
                             date_index,
                             broker,
-                            round_decimal(transaction.amount + transaction.fees, 2),
+                            round_decimal(-transaction.amount - transaction.fees, 2),
                             )
                             if date_index >= tax_year_start_index:
                                 tax_year_movements = aggregate_dicts(tax_year_movements, movement)
@@ -1794,6 +1785,7 @@ class CapitalGainsCalculator:
         self.process_interests()
 
         print("Second pass completed")
+        print(self.mixed_funds['Charles Schwab'].mixed_fund_composition.buckets)
         allowance = CAPITAL_GAIN_ALLOWANCES.get(self.tax_year)
         dividend_allowance = DIVIDEND_ALLOWANCES.get(self.tax_year)
 
