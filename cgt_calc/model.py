@@ -41,6 +41,13 @@ class TaxTreaty:
     treaty_rate: Decimal
 
 
+class RemittedIncomeType(Enum):
+    INCOME = 0
+    CAPITAL_GAIN = 1
+    DIVIDEND = 2
+    INTEREST = 3
+
+
 @dataclass
 class ExcessReportedIncome:
     """Class representing Excess Reported Income on a fund.
@@ -328,6 +335,21 @@ class MixedFundComposition:
 
         return withdrawals
 
+    def get_list_representation(self):
+        return get_list_representation_buckets(self.buckets)
+
+def get_list_representation_buckets(
+    buckets:  dict[int, dict[MixedFundMoneyCategory, Decimal]]
+) -> list[tuple[int, MixedFundMoneyCategory, Decimal]] :
+    l = []
+    for tax_year in sorted(buckets.keys(), reverse=True):
+        for category in MixedFundMoneyCategory:
+            amount = buckets[tax_year][category]
+            if amount:
+                l.append((tax_year, category, amount))
+    return l
+
+
 def aggregate_dicts(
     a: dict[int, dict[MixedFundMoneyCategory, Decimal]],
     b: dict[int, dict[MixedFundMoneyCategory, Decimal]],
@@ -485,6 +507,42 @@ class CalculationEntry:
         )
 
 
+class MixedFundEntry:
+    """Mixed fund entry for final report."""
+
+    def __init__(
+        self,
+        message: str,
+        movement: dict[int, dict[MixedFundMoneyCategory, Decimal]],
+        mixed_fund_composition: MixedFundComposition,
+        remitted_tax_implications: dict[RemittedIncomeType, Decimal] | None = None
+    ):
+        """Create entry, flattening the dicts to immutable list representations."""
+        self.message = message
+        self.movements = get_list_representation_buckets(movement)
+        self.composition = mixed_fund_composition.get_list_representation()
+        self.remitted_tax_implications = remitted_tax_implications
+
+
+
+
+    def __repr__(self) -> str:
+        """Return print representation."""
+        return f"<CalculationEntry {self!s}>"
+
+    def __str__(self) -> str:
+        """Return string representation."""
+        return (
+            f"{self.rule_type.name.replace('_', ' ')}, "
+            f"quantity: {self.quantity}, "
+            f"amount: {self.amount}, "
+            f"allowable cost: {self.allowable_cost}, "
+            f"fees: {self.fees}, "
+            f"gain: {self.gain}, "
+            f"new pool cost: {self.new_pool_cost}"
+        )
+
+
 CalculationLog = dict[datetime.date, dict[str, list[CalculationEntry]]]
 
 
@@ -570,6 +628,7 @@ class CapitalGainsReport:
     total_uk_interest: Decimal
     total_foreign_interest: Decimal
     show_unrealized_gains: bool
+    mixed_funds_log: dict
 
     def _filter_calculation_log(
         self, calculation_log: CalculationLog, rule_type: RuleType
