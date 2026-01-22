@@ -660,6 +660,23 @@ class CapitalGainsReport:
     total_foreign_interest: Decimal
     show_unrealized_gains: bool
     mixed_funds_log: dict
+    mixed_funds_columns: dict[str, list[tuple[int, MixedFundMoneyCategory]]] = field(init=False)
+
+    def __post_init__(self):
+
+        self.mixed_funds_columns = dict()
+
+        for broker in self.mixed_funds_log.keys():
+            mixed_fund_log = self.mixed_funds_log[broker]
+            columns = []
+            for entry in mixed_fund_log:
+                composition = entry.composition
+                for (tax_year, category, amount) in composition:
+                    if amount and (tax_year, category) not in columns:
+                        columns.append((tax_year, category))
+            columns = sorted(columns, key=lambda x:  (-x[0], x[1].value) )
+            self.mixed_funds_columns[broker] = columns
+
 
     def _filter_calculation_log(
         self, calculation_log: CalculationLog, rule_type: RuleType
@@ -741,30 +758,62 @@ class CapitalGainsReport:
         for mixed_fund_log in self.mixed_funds_log.values():
             for item in mixed_fund_log:
                 if item.remitted_tax_implications:
-                    print(item)
                     income, foreign_tax = item.remitted_tax_implications[RemittedIncomeType.INCOME]
                     total += income
         return total
 
-    def remitted_income_max_tax_relief(self) -> Decimal:
+    def remitted_income_no_tax_relief(self) -> Decimal:
         total = Decimal(0)
         for mixed_fund_log in self.mixed_funds_log.values():
             for item in mixed_fund_log:
                 if item.remitted_tax_implications:
-                    print(item)
                     income, foreign_tax = item.remitted_tax_implications[RemittedIncomeType.INCOME]
-                    total += foreign_tax
+                    if not foreign_tax:
+                        total += income
         return total
+
+    def remitted_income_with_tax_relief(self) -> tuple[Decimal, Decimal]:
+        total = Decimal(0)
+        relief = Decimal(0)
+        for mixed_fund_log in self.mixed_funds_log.values():
+            for item in mixed_fund_log:
+                if item.remitted_tax_implications:
+                    income, foreign_tax = item.remitted_tax_implications[RemittedIncomeType.INCOME]
+                    if foreign_tax:
+                        total += income
+                        relief += foreign_tax
+        return total, relief
 
     def remitted_gains(self) -> Decimal:
         total = Decimal(0)
         for mixed_fund_log in self.mixed_funds_log.values():
             for item in mixed_fund_log:
                 if item.remitted_tax_implications:
-                    print(item)
                     gains, foreign_tax = item.remitted_tax_implications[RemittedIncomeType.CAPITAL_GAIN]
                     total += gains
         return total
+
+    def remitted_gains_no_tax_relief(self) -> Decimal:
+        total = Decimal(0)
+        for mixed_fund_log in self.mixed_funds_log.values():
+            for item in mixed_fund_log:
+                if item.remitted_tax_implications:
+                    gains, foreign_tax = item.remitted_tax_implications[RemittedIncomeType.CAPITAL_GAIN]
+                    if not foreign_tax:
+                        total += gains
+        return total
+
+    def remitted_gains_with_tax_relief(self) -> tuple[Decimal, Decimal]:
+        total = Decimal(0)
+        relief = Decimal(0)
+        for mixed_fund_log in self.mixed_funds_log.values():
+            for item in mixed_fund_log:
+                if item.remitted_tax_implications:
+                    gains, foreign_tax = item.remitted_tax_implications[RemittedIncomeType.CAPITAL_GAIN]
+                    if foreign_tax:
+                        total += gains
+                        relief += foreign_tax
+        return total, relief
 
     def __repr__(self) -> str:
         """Return string representation."""
@@ -839,10 +888,12 @@ class CapitalGainsReport:
         out += f"Total foreign interest proceeds: £{self.total_foreign_interest}\n"
 
         out += f"REMITTANCE RESULTS ACROSS MIXED FUNDS: \n"
-        out += f"Total remitted income: £{self.remitted_income()}\n"
-        out += f"Total remitted income max tax relief: £{self.remitted_income_max_tax_relief()}\n"
-        out += f"Total remitted gains: £{self.remitted_gains()}\n"
-
+        out += f"Total remitted income: £{round_decimal(self.remitted_income(), 2)}\n"
+        out += f"Total remitted income without tax relief: £{round_decimal(self.remitted_income_no_tax_relief(), 2)}\n"
+        out += f"Total remitted income with tax relief: £{round_decimal(self.remitted_income_with_tax_relief()[0], 2)} -- foreign tax paid: £{round_decimal(self.remitted_income_with_tax_relief()[1], 2)}\n"
+        out += f"Total remitted gains: £{round_decimal(self.remitted_gains(), 2)}\n"
+        out += f"Total remitted gains without tax relief: £{round_decimal(self.remitted_gains_no_tax_relief(), 2)}\n"
+        out += f"Total remitted gains with tax relief: £{round_decimal(self.remitted_gains_with_tax_relief()[0], 2)} -- foreign tax paid: £{round_decimal(self.remitted_gains_with_tax_relief()[1], 2)}\n"
 
         return out
 

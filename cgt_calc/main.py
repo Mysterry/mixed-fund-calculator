@@ -1702,7 +1702,7 @@ class CapitalGainsCalculator:
                                 )
                         else:
                             # If this is a transfer out to the UK (=remittance), then the ordering rules apply as per RDRM35240
-                            movement, tax_movement = composition.withdraw_money_prorated(withdrawal)
+                            movement, tax_movement = composition.withdraw_money_buckets_order(withdrawal)
 
                             message = (
                             "[MIXED FUND EVENT] Transfer-out on %s in %s to the UK: remittance leads to £%s removed following the ordering rules"
@@ -1712,6 +1712,9 @@ class CapitalGainsCalculator:
                             round_decimal(withdrawal, 2),
                             )
                             LOGGER.debug(message)
+
+                            if date_index == datetime.date(2021, 11, 26):
+                                print(movement)
 
                             remitted_tax_implications = dict()
                             for tax_year in movement.keys():
@@ -1982,7 +1985,6 @@ class CapitalGainsCalculator:
         self.process_interests()
 
         print("Second pass completed")
-        print(self.mixed_funds['Charles Schwab'].mixed_fund_composition.buckets)
         allowance = CAPITAL_GAIN_ALLOWANCES.get(self.tax_year)
         dividend_allowance = DIVIDEND_ALLOWANCES.get(self.tax_year)
 

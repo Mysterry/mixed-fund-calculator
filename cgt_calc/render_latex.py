@@ -41,6 +41,7 @@ def render_pdf(
         round_decimal=round_decimal,
         strip_zeros=strip_zeros,
         Decimal=Decimal,
+        latex_safe=latex_safe,
     )
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -79,3 +80,7 @@ def render_pdf(
         tmp_path.unlink(missing_ok=True)
         for ext in (".log", ".aux"):
             (out_dir / f"{jobname}{ext}").unlink(missing_ok=True)
+
+
+def latex_safe(s: str) -> str:
+    return s.replace("£", r"\textsterling{}").replace("_", r"\_").replace("&", r"\&")
