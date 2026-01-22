@@ -44,8 +44,6 @@ class TaxTreaty:
 class RemittedIncomeType(Enum):
     INCOME = 0
     CAPITAL_GAIN = 1
-    DIVIDEND = 2
-    INTEREST = 3
 
 
 @dataclass
@@ -264,6 +262,7 @@ class MixedFundComposition:
     The composition is maintained at tax_year x category, following the specs of RDRM35240"""
     broker: str
     buckets: DefaultDict[int, DefaultDict[MixedFundMoneyCategory, Decimal]]
+    tax_buckets: DefaultDict[int, DefaultDict[MixedFundMoneyCategory, Decimal]]
 
     def __init__(
             self,
@@ -272,6 +271,7 @@ class MixedFundComposition:
             """Create empty mixed fund composition"""
             self.broker = broker
             self.buckets = defaultdict(lambda: defaultdict(Decimal))
+            self.tax_buckets = defaultdict(lambda: defaultdict(Decimal))
 
     def get_next_none_empty_bucket(self) -> tuple[int, MixedFundMoneyCategory] | None:
         """Returns as a list [tax_year, mixed_fund_money_category] the last bucket with non-zero amount"""
@@ -283,14 +283,26 @@ class MixedFundComposition:
                     return tax_year, category
         return None
 
-    def add_money(self, tax_year: int, category: MixedFundMoneyCategory, amount: Decimal) \
-        -> dict[int, dict[MixedFundMoneyCategory, Decimal]]:
+    def add_money(self, tax_year: int, category: MixedFundMoneyCategory, amount: Decimal, tax_amount=None) \
+        -> tuple[dict[int, dict[MixedFundMoneyCategory, Decimal]], dict[int, dict[MixedFundMoneyCategory, Decimal]]]:
         """Money is added in the relevant category bucket"""
 
         if amount < 0:
             raise ValueError("Cannot add negative amount to a mixed fund")
+        if tax_amount and tax_amount < 0:
+            raise ValueError("Cannot add negative tax amount to a mixed fund")
         self.buckets[tax_year][category] += amount
-        return dict({tax_year: dict({category: amount})})
+        if tax_amount:
+            if category in [
+                MixedFundMoneyCategory.EMPLOYMENT_INCOME_SUBJECT_TO_A_FOREIGN_FAX,
+                MixedFundMoneyCategory.RELEVANT_FOREIGN_INCOME_SUBJECT_TO_A_FOREIGN_FAX,
+                MixedFundMoneyCategory.FOREIGN_CHARGEABLE_GAINS_SUBJECT_TO_A_FOREIGN_FAX,
+            ]:
+                self.tax_buckets[tax_year][category] += tax_amount
+            else:
+                raise ValueError("Cannot add tax amount to a category not subject to foreign tax")
+        return dict({tax_year: dict({category: amount})}), dict({tax_year: dict({category: tax_amount})})
+
 
     def get_total_amount(self) -> Decimal:
         """Returns total amount in the mixed fund across all tax years and categories."""
@@ -301,49 +313,68 @@ class MixedFundComposition:
             for amount in year_bucket.values()
         )
 
-    def withdraw_money_prorated(self, withdrawal: Decimal):
+    def withdraw_money_prorated(self, withdrawal: Decimal) -> tuple[dict[int, dict[MixedFundMoneyCategory, Decimal]], dict[int, dict[MixedFundMoneyCategory, Decimal]]]:
         """Money is removed prorated if destination is overseas"""
         total = self.get_total_amount()
         withdrawals =  defaultdict(lambda: defaultdict(Decimal))
+        tax_withdrawals = defaultdict(lambda: defaultdict(Decimal))
 
         if total < withdrawal:
             raise ValueError("Cannot withdraw amount from mixed fund higher than total value")
+        if withdrawal < 0:
+            raise ValueError("Cannot withdraw negative amount from mixed fund")
 
         for tax_year in self.buckets.keys():
             for category in MixedFundMoneyCategory:
                 amount = self.buckets[tax_year][category]
+                tax_amount = self.tax_buckets[tax_year][category]
                 if amount:
                     self.buckets[tax_year][category] -= amount * withdrawal / total
                     withdrawals[tax_year][category] = -amount * withdrawal / total
-        return withdrawals
+                if tax_amount:
+                    tax_rate = tax_amount / amount
+                    self.tax_buckets[tax_year][category] -= amount * withdrawal / total * tax_rate
+                    tax_withdrawals[tax_year][category] = -amount * withdrawal / total * tax_rate
+        return withdrawals, tax_withdrawals
 
-    def withdraw_money_buckets_order(self, withdrawal: Decimal):
+    def withdraw_money_buckets_order(self, withdrawal: Decimal) -> tuple[dict[int, dict[MixedFundMoneyCategory, Decimal]], dict[int, dict[MixedFundMoneyCategory, Decimal]]]:
         """Money is removed following the buckets' order if destination is UK"""
 
         total = self.get_total_amount()
         withdrawals =  defaultdict(lambda: defaultdict(Decimal))
+        tax_withdrawals = defaultdict(lambda: defaultdict(Decimal))
 
         if total < withdrawal:
             raise ValueError("Cannot withdraw amount from mixed fund higher than total value")
+        if withdrawal < 0:
+           raise ValueError("Cannot withdraw negative amount from mixed fund")
 
         while withdrawal > 0:
             tax_year, category = self.get_next_none_empty_bucket()
             amount = self.buckets[tax_year][category]
+            tax_amount = self.tax_buckets[tax_year][category]
             self.buckets[tax_year][category] -= min(amount, withdrawal)
             withdrawals[tax_year][category] = -min(amount, withdrawal)
             withdrawal -= min(amount, withdrawal)
+            if tax_amount:
+                tax_rate = tax_amount / amount
+                self.tax_buckets[tax_year][category] -= min(amount, withdrawal) * tax_rate
+                tax_withdrawals[tax_year][category] = -min(amount, withdrawal) * tax_rate
 
-        return withdrawals
+        return withdrawals, tax_withdrawals
 
-    def get_list_representation(self):
+    def get_list_representation_buckets(self):
         return get_list_representation_buckets(self.buckets)
+
+    def get_list_representation_tax_buckets(self):
+        return get_list_representation_buckets(self.tax_buckets)
 
 def get_list_representation_buckets(
     buckets:  dict[int, dict[MixedFundMoneyCategory, Decimal]]
 ) -> list[tuple[int, MixedFundMoneyCategory, Decimal]] :
     l = []
     for tax_year in sorted(buckets.keys(), reverse=True):
-        for category in MixedFundMoneyCategory:
+        for category in buckets[tax_year].keys():
             amount = buckets[tax_year][category]
             if amount:
                 l.append((tax_year, category, amount))
@@ -360,7 +391,7 @@ def aggregate_dicts(
     for source in (a, b):
         for tax_year, categories in source.items():
             for category, amount in categories.items():
-                result[tax_year][category] += amount
+                result[tax_year][category] += amount if amount else Decimal(0)
 
     return {tax_year: dict(cats) for tax_year, cats in result.items()}
 
@@ -514,32 +545,32 @@ class MixedFundEntry:
         self,
         message: str,
         movement: dict[int, dict[MixedFundMoneyCategory, Decimal]],
+        tax_movement: dict[int, dict[MixedFundMoneyCategory, Decimal]],
         mixed_fund_composition: MixedFundComposition,
-        remitted_tax_implications: dict[RemittedIncomeType, Decimal] | None = None
+        remitted_tax_implications: dict[RemittedIncomeType, tuple[Decimal, Decimal]] | None = None
     ):
         """Create entry, flattening the dicts to immutable list representations."""
         self.message = message
         self.movements = get_list_representation_buckets(movement)
-        self.composition = mixed_fund_composition.get_list_representation()
+        self.tax_movements = get_list_representation_buckets(tax_movement)
+        self.composition = mixed_fund_composition.get_list_representation_buckets()
+        self.tax_composition = mixed_fund_composition.get_list_representation_tax_buckets()
         self.remitted_tax_implications = remitted_tax_implications
-
-
 
 
     def __repr__(self) -> str:
         """Return print representation."""
-        return f"<CalculationEntry {self!s}>"
+        return f"<MixedFundEntry {self!s}>"
 
     def __str__(self) -> str:
         """Return string representation."""
         return (
-            f"{self.rule_type.name.replace('_', ' ')}, "
-            f"quantity: {self.quantity}, "
-            f"amount: {self.amount}, "
-            f"allowable cost: {self.allowable_cost}, "
-            f"fees: {self.fees}, "
-            f"gain: {self.gain}, "
-            f"new pool cost: {self.new_pool_cost}"
+            f"{self.message}, "
+            f"movement: {self.movements}, "
+            f"tax_movement: {self.tax_movements}, "
+            f"composition: {self.composition}, "
+            f"tax composition: {self.tax_composition}, "
+            f"remitted_tax_implications: {self.remitted_tax_implications} "
         )
 
 
@@ -705,6 +736,36 @@ class CapitalGainsReport:
             - self.total_dividend_taxes_in_tax_treaties_amount(),
         )
 
+    def remitted_income(self) -> Decimal:
+        total = Decimal(0)
+        for mixed_fund_log in self.mixed_funds_log.values():
+            for item in mixed_fund_log:
+                if item.remitted_tax_implications:
+                    print(item)
+                    income, foreign_tax = item.remitted_tax_implications[RemittedIncomeType.INCOME]
+                    total += income
+        return total
+
+    def remitted_income_max_tax_relief(self) -> Decimal:
+        total = Decimal(0)
+        for mixed_fund_log in self.mixed_funds_log.values():
+            for item in mixed_fund_log:
+                if item.remitted_tax_implications:
+                    print(item)
+                    income, foreign_tax = item.remitted_tax_implications[RemittedIncomeType.INCOME]
+                    total += foreign_tax
+        return total
+
+    def remitted_gains(self) -> Decimal:
+        total = Decimal(0)
+        for mixed_fund_log in self.mixed_funds_log.values():
+            for item in mixed_fund_log:
+                if item.remitted_tax_implications:
+                    print(item)
+                    gains, foreign_tax = item.remitted_tax_implications[RemittedIncomeType.CAPITAL_GAIN]
+                    total += gains
+        return total
+
     def __repr__(self) -> str:
         """Return string representation."""
         return f"<CalculationEntry: {self!s}>"
@@ -776,6 +837,12 @@ class CapitalGainsReport:
             )
         out += f"Total UK interest proceeds: £{self.total_uk_interest}\n"
         out += f"Total foreign interest proceeds: £{self.total_foreign_interest}\n"
+
+        out += f"REMITTANCE RESULTS ACROSS MIXED FUNDS: \n"
+        out += f"Total remitted income: £{self.remitted_income()}\n"
+        out += f"Total remitted income max tax relief: £{self.remitted_income_max_tax_relief()}\n"
+        out += f"Total remitted gains: £{self.remitted_gains()}\n"
+
 
         return out
 

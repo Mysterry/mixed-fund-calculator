@@ -1577,10 +1577,10 @@ class CapitalGainsCalculator:
                             # It cannot be higher than the post-amount deposited into the account
                             owr_amount = min(transaction.pre_tax_quantity * transaction.price * transaction.owr_rate,
                                              transaction.quantity * transaction.price - transaction.fees)
-                            owr = composition.add_money(date_index.year, MixedFundMoneyCategory.RELEVANT_FOREIGN_EARNINGS, owr_amount)
-                            non_owr = composition.add_money(date_index.year, MixedFundMoneyCategory.EMPLOYMENT_INCOME, transaction.quantity * transaction.price - owr_amount - transaction.fees)
+                            owr, owr_tax = composition.add_money(date_index.year, MixedFundMoneyCategory.RELEVANT_FOREIGN_EARNINGS, owr_amount)
+                            non_owr, non_owr_tax = composition.add_money(date_index.year, MixedFundMoneyCategory.EMPLOYMENT_INCOME, transaction.quantity * transaction.price - owr_amount - transaction.fees)
                             movement = aggregate_dicts(owr, non_owr)
-
+                            tax_movement = aggregate_dicts(owr_tax, non_owr_tax)
 
                             message = (
                             "[MIXED FUND EVENT] RSU vesting on %s in %s %s units (%s post-tax) in a tax year filed on remittance basis "
@@ -1599,13 +1599,14 @@ class CapitalGainsCalculator:
                                     MixedFundEntry(
                                         message=message,
                                         movement=movement,
+                                        tax_movement=tax_movement,
                                         mixed_fund_composition=composition,
                                         remitted_tax_implications=None
                                     )
                                 )
                         else:
                             # In arising basis tax years, all the RSU amount is considered taxed
-                            movement = composition.add_money(date_index.year, MixedFundMoneyCategory.EMPLOYMENT_INCOME, transaction.quantity * transaction.price - transaction.fees)
+                            movement, tax_movement = composition.add_money(date_index.year, MixedFundMoneyCategory.EMPLOYMENT_INCOME, transaction.quantity * transaction.price - transaction.fees)
 
                             message = (
                             "[MIXED FUND EVENT] RSU vesting on %s in %s %s units (%s post-tax) in a tax year filed on arising basis "
@@ -1623,6 +1624,7 @@ class CapitalGainsCalculator:
                                     MixedFundEntry(
                                         message=message,
                                         movement=movement,
+                                        tax_movement=tax_movement,
                                         mixed_fund_composition=composition,
                                         remitted_tax_implications=None
                                     )
@@ -1630,7 +1632,7 @@ class CapitalGainsCalculator:
                     elif transaction.action == ActionType.WIRE_FUNDS_RECEIVED:
                         if transaction.origin == Origin.NON_UK_TAXED:
                             # If this is a non-UK-taxed transfer-in, add in the foreign income
-                            movement = composition.add_money(date_index.year, MixedFundMoneyCategory.RELEVANT_FOREIGN_INCOME, transaction.amount - transaction.fees)
+                            movement, tax_movement = composition.add_money(date_index.year, MixedFundMoneyCategory.RELEVANT_FOREIGN_INCOME, transaction.amount - transaction.fees)
                             message = (
                             "[MIXED FUND EVENT] Transfer-in on %s in %s of non-UK taxed money leads to £%s "
                             "deposited in foreign income"
@@ -1645,6 +1647,7 @@ class CapitalGainsCalculator:
                                     MixedFundEntry(
                                         message=message,
                                         movement=movement,
+                                        tax_movement=tax_movement,
                                         mixed_fund_composition=composition,
                                         remitted_tax_implications=None
                                     )
@@ -1652,7 +1655,7 @@ class CapitalGainsCalculator:
                         else:
                             # If this is a UK-taxed transfer-in, add in employment income
                             # Positive fees & adjustments will also go there
-                            movement = composition.add_money(date_index.year, MixedFundMoneyCategory.EMPLOYMENT_INCOME, transaction.amount - transaction.fees)
+                            movement, tax_movement = composition.add_money(date_index.year, MixedFundMoneyCategory.EMPLOYMENT_INCOME, transaction.amount - transaction.fees)
                             message = (
                             "[MIXED FUND EVENT] Transfer-in on %s in %s of UK taxed money leads to £%s deposited "
                             "in employment income"
@@ -1667,6 +1670,7 @@ class CapitalGainsCalculator:
                                     MixedFundEntry(
                                         message=message,
                                         movement=movement,
+                                        tax_movement=tax_movement,
                                         mixed_fund_composition=composition,
                                         remitted_tax_implications=None
                                     )
@@ -1676,7 +1680,7 @@ class CapitalGainsCalculator:
                         withdrawal = -transaction.amount - transaction.fees
                         if transaction.destination == Destination.OVERSEAS:
                             # If this is a transfer out to overseas, then we take the money prorated on all buckets, as per RDRM35420
-                            movement = composition.withdraw_money_prorated(withdrawal)
+                            movement, tax_movement = composition.withdraw_money_prorated(withdrawal)
                             message = (
                             "[MIXED FUND EVENT] Transfer-out on %s in %s to overseas destination leads to £%s "
                             "removed prorated on all buckets"
@@ -1691,13 +1695,14 @@ class CapitalGainsCalculator:
                                     MixedFundEntry(
                                         message=message,
                                         movement=movement,
+                                        tax_movement=tax_movement,
                                         mixed_fund_composition=composition,
                                         remitted_tax_implications=None
                                     )
                                 )
                         else:
                             # If this is a transfer out to the UK (=remittance), then the ordering rules apply as per RDRM35240
-                            movement = composition.withdraw_money_prorated(withdrawal)
+                            movement, tax_movement = composition.withdraw_money_prorated(withdrawal)
 
                             message = (
                             "[MIXED FUND EVENT] Transfer-out on %s in %s to the UK: remittance leads to £%s removed following the ordering rules"
@@ -1708,21 +1713,30 @@ class CapitalGainsCalculator:
                             )
                             LOGGER.debug(message)
 
-                            remitted_tax_implications = defaultdict(Decimal)
+                            remitted_tax_implications = dict()
                             for tax_year in movement.keys():
-                                for category, remittance in movement[tax_year].items():
-                                    if remittance:
-                                        if category == MixedFundMoneyCategory.RELEVANT_FOREIGN_EARNINGS:
-                                            remitted_tax_implications[RemittedIncomeType.INCOME] += remittance
-                                        elif category IN MixedFundMoneyCategory.RELEVANT_FOREIGN_INCOME:
-                                            remitted_tax_implications[RemittedIncomeType.INCOME] += remittance
-                                            remitted_tax_implications
-                                            MixedFundMoneyCategory.FOREIGN_CHARGEABLE_GAINS
-                                            MixedFundMoneyCategory.EMPLOYMENT_INCOME_SUBJECT_TO_A_FOREIGN_FAX
-                                            MixedFundMoneyCategory.RELEVANT_FOREIGN_INCOME_SUBJECT_TO_A_FOREIGN_FAX
-                                            MixedFundMoneyCategory.FOREIGN_CHARGEABLE_GAINS_SUBJECT_TO_A_FOREIGN_FAX
-                                            MixedFundMoneyCategory.OTHER_INCOME
-                                    remitted_tax_implications
+                                # There is possibly a tax implication only when we remit money from a year that was taxed as remittance
+                                if self.tax_filings.get(tax_year) == TaxFilingBasis.REMITTANCE:
+                                    for category, remittance in movement[tax_year].items():
+                                        if remittance:
+                                            if category in [
+                                                MixedFundMoneyCategory.RELEVANT_FOREIGN_EARNINGS,
+                                                MixedFundMoneyCategory.FOREIGN_SPECIFIC_EMPLOYMENT_INCOME,
+                                                MixedFundMoneyCategory.RELEVANT_FOREIGN_INCOME,
+                                                MixedFundMoneyCategory.OTHER_INCOME,
+                                                ]:
+                                                remitted_tax_implications[RemittedIncomeType.INCOME] = (-remittance, 0)
+                                            elif category ==  MixedFundMoneyCategory.FOREIGN_CHARGEABLE_GAINS:
+                                                remitted_tax_implications[RemittedIncomeType.CAPITAL_GAIN] = (-remittance, 0)
+                                            elif category in [
+                                                MixedFundMoneyCategory.EMPLOYMENT_INCOME_SUBJECT_TO_A_FOREIGN_FAX,
+                                                MixedFundMoneyCategory.RELEVANT_FOREIGN_INCOME_SUBJECT_TO_A_FOREIGN_FAX,
+                                            ]:
+                                                foreign_tax = tax_movement[tax_year][category]
+                                                remitted_tax_implications[RemittedIncomeType.INCOME] = (-remittance, -foreign_tax)
+                                            elif category == MixedFundMoneyCategory.FOREIGN_CHARGEABLE_GAINS_SUBJECT_TO_A_FOREIGN_FAX:
+                                                foreign_tax = tax_movement[tax_year][category]
+                                                remitted_tax_implications[RemittedIncomeType.CAPITAL_GAIN] = (-remittance, -foreign_tax)
 
 
                             if date_index >= tax_year_start_index:
@@ -1730,26 +1744,27 @@ class CapitalGainsCalculator:
                                     MixedFundEntry(
                                         message=message,
                                         movement=movement,
+                                        tax_movement=tax_movement,
                                         mixed_fund_composition=composition,
-                                        remitted_tax_implications=None
+                                        remitted_tax_implications=remitted_tax_implications
                                     )
                                 )
                     elif transaction.action == ActionType.INTEREST:
                         if transaction.tax_at_source:
                             # Investment gains subject to a foreign tax go to a specific bucket
-                            amount = transaction.amount + transaction.tax_at_source - transaction.fees
+                            amount = transaction.amount - transaction.fees
+                            tax_amount = -transaction.tax_at_source
 
-                            movement = composition.add_money(date_index.year, MixedFundMoneyCategory.FOREIGN_CHARGEABLE_GAINS_SUBJECT_TO_A_FOREIGN_FAX, amount)
+                            movement, tax_movement = composition.add_money(date_index.year, MixedFundMoneyCategory.FOREIGN_CHARGEABLE_GAINS_SUBJECT_TO_A_FOREIGN_FAX, amount, tax_amount)
 
                             message = (
-                            "[MIXED FUND EVENT] Interest on %s in %s accrued: £%s  "
-                            "with foreign tax (£%s) leads to £%s deposited in foreign gains subject to foreign tax"
+                            "[MIXED FUND EVENT] Interest on %s in %s accrued leads to £%s deposited in foreign gains " 
+                            "subject to foreign tax with foreign tax (foreign tax: £%s) "
                             ) % (
                             date_index,
                             broker,
-                            round_decimal(transaction.amount - transaction.fees, 2),
-                            round_decimal(-transaction.tax_at_source, 2),
-                            round_decimal(amount, 2)
+                            round_decimal(amount, 2),
+                            round_decimal(tax_amount, 2),
                             )
                             LOGGER.debug(message)
                             if date_index >= tax_year_start_index:
@@ -1757,13 +1772,14 @@ class CapitalGainsCalculator:
                                     MixedFundEntry(
                                         message=message,
                                         movement=movement,
+                                        tax_movement=tax_movement,
                                         mixed_fund_composition=composition,
                                         remitted_tax_implications=None
                                     )
                                 )
                         else:
                             # Investment gains not subject to a foreign tax have a specific bucket
-                            movement = composition.add_money(date_index.year, MixedFundMoneyCategory.FOREIGN_CHARGEABLE_GAINS, transaction.amount - transaction.fees)
+                            movement, tax_movement = composition.add_money(date_index.year, MixedFundMoneyCategory.FOREIGN_CHARGEABLE_GAINS, transaction.amount - transaction.fees)
 
                             message = (
                             "[MIXED FUND EVENT] Interest on %s in %s accrued "
@@ -1779,6 +1795,7 @@ class CapitalGainsCalculator:
                                     MixedFundEntry(
                                         message=message,
                                         movement=movement,
+                                        tax_movement=tax_movement,
                                         mixed_fund_composition=composition,
                                         remitted_tax_implications=None
                                     )
@@ -1787,20 +1804,20 @@ class CapitalGainsCalculator:
                     elif transaction.action == ActionType.DIVIDEND:
                         if transaction.tax_at_source:
                             # Investment gains subject to a foreign tax go to a specific bucket
-                            amount = transaction.amount + transaction.tax_at_source - transaction.fees
+                            amount = transaction.amount - transaction.fees
+                            tax_amount = -transaction.tax_at_source
 
-                            movement = composition.add_money(date_index.year, MixedFundMoneyCategory.FOREIGN_CHARGEABLE_GAINS_SUBJECT_TO_A_FOREIGN_FAX, amount)
+                            movement, tax_movement = composition.add_money(date_index.year, MixedFundMoneyCategory.FOREIGN_CHARGEABLE_GAINS_SUBJECT_TO_A_FOREIGN_FAX, amount, tax_amount)
 
                             message = (
-                            "[MIXED FUND EVENT] %s Dividend on %s in %s accrued: £%s  "
-                            "with foreign tax (£%s) leads to £%s deposited in foreign gains subject to foreign tax"
+                            "[MIXED FUND EVENT] %s Dividend on %s in %s accrued leads to £%s deposited in foreign " 
+                            " gains subject to foreign tax (foreign tax: £%s) "
                             ) % (
-                             transaction.symbol,
+                            transaction.symbol,
                             date_index,
                             broker,
-                            round_decimal(transaction.amount - transaction.fees, 2),
-                            round_decimal(-transaction.tax_at_source, 2),
-                            round_decimal(amount, 2)
+                            round_decimal(amount, 2),
+                            round_decimal(tax_amount, 2),
                             )
                             LOGGER.debug(message)
                             if date_index >= tax_year_start_index:
@@ -1808,13 +1825,14 @@ class CapitalGainsCalculator:
                                     MixedFundEntry(
                                         message=message,
                                         movement=movement,
+                                        tax_movement=tax_movement,
                                         mixed_fund_composition=composition,
                                         remitted_tax_implications=None
                                     )
                                 )
                         else:
                             # Investment gains not subject to a foreign tax have a specific bucket
-                            movement = composition.add_money(date_index.year, MixedFundMoneyCategory.FOREIGN_CHARGEABLE_GAINS, transaction.amount - transaction.fees)
+                            movement, tax_movement = composition.add_money(date_index.year, MixedFundMoneyCategory.FOREIGN_CHARGEABLE_GAINS, transaction.amount - transaction.fees)
 
                             message = (
                             "[MIXED FUND EVENT] %s Dividend on %s in %s accrued "
@@ -1831,6 +1849,7 @@ class CapitalGainsCalculator:
                                     MixedFundEntry(
                                         message=message,
                                         movement=movement,
+                                        tax_movement=tax_movement,
                                         mixed_fund_composition=composition,
                                         remitted_tax_implications=None
                                     )
@@ -1839,7 +1858,7 @@ class CapitalGainsCalculator:
                     elif transaction.action in [ActionType.FEE, ActionType.ADJUSTMENT]:
                         if transaction.amount > 0:
                             # Adjustments are pure capital
-                            movement = composition.add_money(date_index.year, MixedFundMoneyCategory.OTHER_INCOME, transaction.amount - transaction.fees)
+                            movement, tax_movement = composition.add_money(date_index.year, MixedFundMoneyCategory.OTHER_INCOME, transaction.amount - transaction.fees)
 
                             message = (
                             "[MIXED FUND EVENT] Adjustments accrued on %s in %s leads to £%s deposited "
@@ -1855,6 +1874,7 @@ class CapitalGainsCalculator:
                                     MixedFundEntry(
                                         message=message,
                                         movement=movement,
+                                        tax_movement=tax_movement,
                                         mixed_fund_composition=composition,
                                         remitted_tax_implications=None
                                     )
@@ -1862,7 +1882,7 @@ class CapitalGainsCalculator:
                         else:
                             # Negative fees or adjustments are considered overseas transfers
                             withdrawal = -transaction.amount - transaction.fees
-                            movement = composition.withdraw_money_prorated(withdrawal)
+                            movement, tax_movement = composition.withdraw_money_prorated(withdrawal)
                             message = (
                             "[MIXED FUND EVENT] Fee/adjustment on %s in %s treated as overseas transfer leads to "
                             "£%s removed prorated on all buckets"
@@ -1877,6 +1897,7 @@ class CapitalGainsCalculator:
                                     MixedFundEntry(
                                         message=message,
                                         movement=movement,
+                                        tax_movement=tax_movement,
                                         mixed_fund_composition=composition,
                                         remitted_tax_implications=None
                                     )
@@ -1928,7 +1949,7 @@ class CapitalGainsCalculator:
 
                             chargeable_gain = (transaction.price - cost_basis) * quantity - transaction.fees * quantity  / transaction.quantity
                             if chargeable_gain > 0:
-                                movement = composition.add_money(date_index.year, MixedFundMoneyCategory.FOREIGN_CHARGEABLE_GAINS, chargeable_gain)
+                                movement, tax_movement = composition.add_money(date_index.year, MixedFundMoneyCategory.FOREIGN_CHARGEABLE_GAINS, chargeable_gain)
 
                                 message = (
                                 "[MIXED FUND EVENT] %s sale on %s in %s of %s units via %s "
@@ -1947,6 +1968,7 @@ class CapitalGainsCalculator:
                                     MixedFundEntry(
                                         message=message,
                                         movement=movement,
+                                        tax_movement=tax_movement,
                                         mixed_fund_composition=composition,
                                         remitted_tax_implications=None
                                     )
@@ -1965,7 +1987,7 @@ class CapitalGainsCalculator:
         dividend_allowance = DIVIDEND_ALLOWANCES.get(self.tax_year)
 
         return CapitalGainsReport(
-            self.c,
+            self.tax_year,
             [
                 self.make_portfolio_entry(symbol, position.quantity, position.amount)
                 for symbol, position in self.portfolio.items()
@@ -1983,7 +2005,7 @@ class CapitalGainsCalculator:
             round_decimal(self.total_uk_interest, 2),
             round_decimal(self.total_foreign_interest, 2),
             show_unrealized_gains=self.calc_unrealized_gains,
-            mixed_funds_log=self.mixed_funds_log
+            mixed_funds_log=mixed_funds_log
         )
 
     def calculate_mixed_fund_states(self) -> MixedFundsReport:
