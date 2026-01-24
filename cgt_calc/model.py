@@ -757,7 +757,8 @@ class CapitalGainsReport:
         total = Decimal(0)
         for mixed_fund_log in self.mixed_funds_log.values():
             for item in mixed_fund_log:
-                if item.remitted_tax_implications:
+                if (item.remitted_tax_implications
+                    and RemittedIncomeType.INCOME in item.remitted_tax_implications.keys()):
                     income, foreign_tax = item.remitted_tax_implications[RemittedIncomeType.INCOME]
                     total += income
         return total
@@ -766,7 +767,8 @@ class CapitalGainsReport:
         total = Decimal(0)
         for mixed_fund_log in self.mixed_funds_log.values():
             for item in mixed_fund_log:
-                if item.remitted_tax_implications:
+                if (item.remitted_tax_implications
+                    and RemittedIncomeType.INCOME in item.remitted_tax_implications.keys()):
                     income, foreign_tax = item.remitted_tax_implications[RemittedIncomeType.INCOME]
                     if not foreign_tax:
                         total += income
@@ -777,7 +779,8 @@ class CapitalGainsReport:
         relief = Decimal(0)
         for mixed_fund_log in self.mixed_funds_log.values():
             for item in mixed_fund_log:
-                if item.remitted_tax_implications:
+                if (item.remitted_tax_implications
+                    and RemittedIncomeType.INCOME in item.remitted_tax_implications.keys()):
                     income, foreign_tax = item.remitted_tax_implications[RemittedIncomeType.INCOME]
                     if foreign_tax:
                         total += income
@@ -788,7 +791,8 @@ class CapitalGainsReport:
         total = Decimal(0)
         for mixed_fund_log in self.mixed_funds_log.values():
             for item in mixed_fund_log:
-                if item.remitted_tax_implications:
+                if (item.remitted_tax_implications
+                    and RemittedIncomeType.CAPITAL_GAIN in item.remitted_tax_implications.keys()):
                     gains, foreign_tax = item.remitted_tax_implications[RemittedIncomeType.CAPITAL_GAIN]
                     total += gains
         return total
@@ -797,7 +801,8 @@ class CapitalGainsReport:
         total = Decimal(0)
         for mixed_fund_log in self.mixed_funds_log.values():
             for item in mixed_fund_log:
-                if item.remitted_tax_implications:
+                if (item.remitted_tax_implications
+                    and RemittedIncomeType.CAPITAL_GAIN in item.remitted_tax_implications.keys()):
                     gains, foreign_tax = item.remitted_tax_implications[RemittedIncomeType.CAPITAL_GAIN]
                     if not foreign_tax:
                         total += gains
@@ -808,7 +813,8 @@ class CapitalGainsReport:
         relief = Decimal(0)
         for mixed_fund_log in self.mixed_funds_log.values():
             for item in mixed_fund_log:
-                if item.remitted_tax_implications:
+                if (item.remitted_tax_implications
+                    and RemittedIncomeType.CAPITAL_GAIN in item.remitted_tax_implications.keys()):
                     gains, foreign_tax = item.remitted_tax_implications[RemittedIncomeType.CAPITAL_GAIN]
                     if foreign_tax:
                         total += gains
