@@ -14,7 +14,7 @@ from .const import (
     DEFAULT_ISIN_TRANSLATION_FILE,
     DEFAULT_REPORT_PATH,
     DEFAULT_SPIN_OFF_FILE,
-    INTERNAL_START_DATE,
+    INTERNAL_START_DATE, DEFAULT_MIXED_FUND_REPORT_PATH,
 )
 
 if TYPE_CHECKING:
@@ -402,6 +402,13 @@ Environment variables:
         metavar="PATH",
         default=DEFAULT_REPORT_PATH,
         help="path to save the generated PDF report (default: %(default)s)",
+    )
+    output_mutex.add_argument(
+                "--output_mixed_fund",
+        type=output_path_type,
+        metavar="PATH",
+        default=DEFAULT_MIXED_FUND_REPORT_PATH,
+        help="path to save the generated mixed fund PDF report (default: %(default)s)",
     )
     output_mutex.add_argument(
         "--report",

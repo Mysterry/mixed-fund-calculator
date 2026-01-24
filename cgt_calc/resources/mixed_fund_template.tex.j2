@@ -1,0 +1,149 @@
+\documentclass{article}
+% ---------- DEFINE VARIABLES FIRST ----------
+\BLOCK{ set column_width = 1.5 }
+\BLOCK{ set tabcolsep = 0.14 }
+\BLOCK{ set number_to_letter = {
+    1: "a",
+    2: "b",
+    3: "c",
+    4: "d",
+    5: "e",
+    6: "f",
+    7: "g",
+    8: "h",
+    9: "i"
+} }
+% ---------- CALCULATE MAX COLUMNS ----------
+\BLOCK{ set ns_max = namespace(max_columns=0) }
+\BLOCK{ for broker in report.mixed_funds_log.keys() }
+  \BLOCK{ if report.mixed_funds_columns[broker]|length > ns_max.max_columns }
+    \BLOCK{ set ns_max.max_columns = report.mixed_funds_columns[broker]|length }
+  \BLOCK{ endif }
+\BLOCK{ endfor }
+% ---------- PAGE: CUSTOM LANDSCAPE ----------
+\BLOCK{ set total_column_width = column_width + (2 * tabcolsep) }
+\BLOCK{ set page_margin = 4 }
+\BLOCK{ set calculated_height = [ns_max.max_columns * total_column_width + page_margin, 20]|max }
+\usepackage[
+  paperwidth=59.4cm,
+  paperheight=\VAR{ calculated_height }cm,
+  landscape,
+  margin=2cm
+]{geometry}
+% ---------- PACKAGES ----------
+\usepackage[utf8]{inputenc}
+\usepackage{array}
+\usepackage{ragged2e}
+\usepackage{booktabs}
+\usepackage{ltablex}  % Supports long tables with X columns
+\keepXColumns
+\setlength{\parindent}{0pt}
+\setlength{\tabcolsep}{\VAR{ tabcolsep }cm}
+\renewcommand{\arraystretch}{1.25}
+\begin{document}
+\centerline{\Large\bfseries
+Mixed funds calculations for
+\VAR{ report.tax_year }--\VAR{ ("{:02d}".format((report.tax_year + 1) % 100)) }
+}
+\vspace{0.5cm}
+
+\section*{Remittance results across mixed funds:}
+
+\subsection*{Total remitted income: £\VAR{ "{:,}".format(round_decimal(report.remitted_income(), 2))}}
+\subsection*{Total remitted income without tax relief: £\VAR{ "{:,}".format(round_decimal(report.remitted_income_no_tax_relief(), 2))}}
+\subsection*{Total remitted income with tax relief: £\VAR{ "{:,}".format(round_decimal(report.remitted_income_with_tax_relief()[0], 2))} -- foreign tax paid: £\VAR{ "{:,}".format(round_decimal(report.remitted_income_with_tax_relief()[1], 2))}}
+\subsection*{Total remitted gains: £\VAR{ "{:,}".format(round_decimal(report.remitted_gains(), 2))}}
+\subsection*{Total remitted gains without tax relief: £\VAR{ "{:,}".format(round_decimal(report.remitted_gains_no_tax_relief(), 2))}}
+\subsection*{Total remitted gains with tax relief: £\VAR{ "{:,}".format(round_decimal(report.remitted_gains_with_tax_relief()[0], 2))} -- foreign tax paid: £\VAR{ "{:,}".format(round_decimal(report.remitted_gains_with_tax_relief()[1], 2))}}
+\vspace{0.5cm}
+
+
+% -------- LEGEND --------
+\noindent\textbf{Category Legend:}
+\begin{itemize}
+\BLOCK{ for category in mixed_fund_category_class }
+  \item \textbf{\VAR{ number_to_letter[category.value] }} -- \VAR{ category.name.replace("_", " ").title() }
+\BLOCK{ endfor }
+\end{itemize}
+\vspace{0.5cm}
+\section*{Mixed Funds Events}
+\BLOCK{ for broker, entries in report.mixed_funds_log.items() }
+\subsection*{\VAR{ broker }}
+\BLOCK{ set columns = report.mixed_funds_columns[broker] }
+% ================= FLEXIBLE TABLE =================
+\begin{tabularx}{\textwidth}{|*{\VAR{ columns|length }}{>{\RaggedRight\arraybackslash}p{\VAR{ column_width }cm}|}}
+\hline
+% -------- YEAR HEADER ROW (merged) --------
+\BLOCK{ set ns = namespace(current_year=none, year_span=0, output='') }
+\BLOCK{ for tax_year, category in columns }
+  \BLOCK{ if tax_year != ns.current_year }
+    \BLOCK{ if ns.current_year is not none }
+      \BLOCK{ set ns.output = ns.output ~ '\\multicolumn{' ~ ns.year_span ~ '}{|c|}{\\textbf{' ~ ns.current_year ~ '}}' }
+      \BLOCK{ if not loop.last }
+        \BLOCK{ set ns.output = ns.output ~ ' & ' }
+      \BLOCK{ endif }
+    \BLOCK{ endif }
+    \BLOCK{ set ns.current_year = tax_year }
+    \BLOCK{ set ns.year_span = 1 }
+  \BLOCK{ else }
+    \BLOCK{ set ns.year_span = ns.year_span + 1 }
+  \BLOCK{ endif }
+  \BLOCK{ if loop.last }
+    \BLOCK{ set ns.output = ns.output ~ '\\multicolumn{' ~ ns.year_span ~ '}{|c|}{\\textbf{' ~ ns.current_year ~ '}}' }
+  \BLOCK{ endif }
+\BLOCK{ endfor }
+\VAR{ ns.output } \\
+\hline
+% -------- CATEGORY LETTER ROW --------
+\BLOCK{ for tax_year, category in columns }
+  \textbf{\VAR{ number_to_letter[category.value] }}
+  \BLOCK{ if not loop.last } & \BLOCK{ endif }
+\BLOCK{ endfor } \\
+\hline
+\endhead
+% ================= TABLE BODY =================
+\BLOCK{ for entry in entries }
+% -------- Narrative row --------
+\multicolumn{\VAR{ columns|length }}{|p{\textwidth}|}{
+\vspace{0.4em}
+\VAR{ latex_safe(entry.message) }
+\BLOCK{ if entry.movements }
+\vspace{0.4em}
+\begin{itemize}
+  \BLOCK{ for y, c, a in entry.movements }
+    \item \VAR{ y } --  \VAR{number_to_letter[c.value] } : \VAR{ c.name.replace("_", " ") }:
+          £\VAR{ "{:,}".format(round_decimal(a, 2)) }
+  \BLOCK{ endfor }
+\end{itemize}
+\BLOCK{ endif }
+\BLOCK{ if entry.remitted_tax_implications }
+\vspace{0.4em}
+\textit{Remitted tax implications:}
+\begin{itemize}
+  \BLOCK{ for income_type, values in entry.remitted_tax_implications.items() }
+    \BLOCK{ set remitted, foreign_tax = values }
+    \item \VAR{ income_type.name.replace("_", " ") }:
+          remitted £\VAR{ "{:,}".format(round_decimal(remitted, 2)) },
+          foreign tax £\VAR{ "{:,}".format(round_decimal(foreign_tax, 2)) }
+  \BLOCK{ endfor }
+\end{itemize}
+\BLOCK{ endif }
+}
+\\
+\hline
+% -------- Composition row --------
+\BLOCK{ set comp = {} }
+\BLOCK{ for y, c, a in entry.composition }
+  \BLOCK{ set _ = comp.update({(y, c): a}) }
+\BLOCK{ endfor }
+\BLOCK{ for col in columns }
+  \BLOCK{ set value = comp.get(col, Decimal(0)) }
+  \VAR{ "{:,}".format(round_decimal(value, 2)) if value != 0 else "" }
+  \BLOCK{ if not loop.last } & \BLOCK{ endif }
+\BLOCK{ endfor } \\
+\hline
+\BLOCK{ endfor }
+\end{tabularx}
+\clearpage
+\BLOCK{ endfor }
+\end{document}

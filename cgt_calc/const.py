@@ -89,6 +89,9 @@ PACKAGE_NAME: Final = __package__
 # LaTeX template for calculations report
 LATEX_TEMPLATE_RESOURCE: Final = "template.tex.j2"
 
+# LaTeX template for mixed fund report
+MIXED_FUND_LATEX_TEMPLATE_RESOURCE: Final = "mixed_fund_template.tex.j2"
+
 # Initial vesting and spin-off prices
 INITIAL_PRICES_RESOURCE: Final = "initial_prices.csv"
 
@@ -107,6 +110,8 @@ DEFAULT_OUTPUT_FOLDER: Final = Path("out")
 
 # Generated PDF report
 DEFAULT_REPORT_PATH: Final = DEFAULT_OUTPUT_FOLDER / "calculations.pdf"
+DEFAULT_MIXED_FUND_REPORT_PATH: Final = DEFAULT_OUTPUT_FOLDER / "mixed_fund.pdf"
+
 
 # Monthly exchange rates from HMRC
 DEFAULT_EXCHANGE_RATES_FILE: Final = DEFAULT_OUTPUT_FOLDER / "exchange_rates.csv"

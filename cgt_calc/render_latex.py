@@ -8,9 +8,9 @@ import tempfile
 
 import jinja2
 
-from .const import LATEX_TEMPLATE_RESOURCE, PACKAGE_NAME
+from .const import LATEX_TEMPLATE_RESOURCE, PACKAGE_NAME, MIXED_FUND_LATEX_TEMPLATE_RESOURCE
 from .exceptions import LatexRenderError, MissingExternalToolError
-from .model import CapitalGainsReport
+from .model import CapitalGainsReport, MixedFundMoneyCategory
 from .util import round_decimal, strip_zeros
 
 
@@ -18,6 +18,7 @@ def render_pdf(
     report: CapitalGainsReport,
     output_path: Path,
     skip_pdflatex: bool = False,
+    is_mixed_fund: bool = False
 ) -> None:
     """Render LaTeX to a PDF report."""
     print("Generating PDF report...")
@@ -35,13 +36,18 @@ def render_pdf(
         loader=jinja2.PackageLoader(PACKAGE_NAME, "resources"),
         extensions=["jinja2.ext.loopcontrols"],
     )
-    template = latex_template_env.get_template(LATEX_TEMPLATE_RESOURCE)
+    if is_mixed_fund:
+        template = latex_template_env.get_template(MIXED_FUND_LATEX_TEMPLATE_RESOURCE)
+    else:
+        template = latex_template_env.get_template(LATEX_TEMPLATE_RESOURCE)
+
     output_text = template.render(
         report=report,
         round_decimal=round_decimal,
         strip_zeros=strip_zeros,
         Decimal=Decimal,
         latex_safe=latex_safe,
+        mixed_fund_category_class=MixedFundMoneyCategory
     )
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
