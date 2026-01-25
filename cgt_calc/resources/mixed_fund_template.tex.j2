@@ -47,14 +47,18 @@ Mixed funds calculations for
 }
 \vspace{0.5cm}
 
-\section*{Remittance results across mixed funds:}
+\section*{Remittance tax implications across mixed funds:}
 
-\subsection*{Total remitted income: £\VAR{ "{:,}".format(round_decimal(report.remitted_income(), 2))}}
-\subsection*{Total remitted income without tax relief: £\VAR{ "{:,}".format(round_decimal(report.remitted_income_no_tax_relief(), 2))}}
-\subsection*{Total remitted income with tax relief: £\VAR{ "{:,}".format(round_decimal(report.remitted_income_with_tax_relief()[0], 2))} -- foreign tax paid: £\VAR{ "{:,}".format(round_decimal(report.remitted_income_with_tax_relief()[1], 2))}}
-\subsection*{Total remitted gains: £\VAR{ "{:,}".format(round_decimal(report.remitted_gains(), 2))}}
-\subsection*{Total remitted gains without tax relief: £\VAR{ "{:,}".format(round_decimal(report.remitted_gains_no_tax_relief(), 2))}}
-\subsection*{Total remitted gains with tax relief: £\VAR{ "{:,}".format(round_decimal(report.remitted_gains_with_tax_relief()[0], 2))} -- foreign tax paid: £\VAR{ "{:,}".format(round_decimal(report.remitted_gains_with_tax_relief()[1], 2))}}
+\subsection*{Total remitted taxable income: £\VAR{ "{:,}".format(round_decimal(report.remitted_income(), 2))}}
+\begin{itemize}
+\item{Total remitted taxable income without tax relief: £\VAR{ "{:,}".format(round_decimal(report.remitted_income_no_tax_relief(), 2))}}
+\item{Total remitted taxable income with tax relief: £\VAR{ "{:,}".format(round_decimal(report.remitted_income_with_tax_relief()[0], 2))} -- foreign tax paid: £\VAR{ "{:,}".format(round_decimal(report.remitted_income_with_tax_relief()[1], 2))}}
+\end{itemize}
+\subsection*{Total remitted taxable gains: £\VAR{ "{:,}".format(round_decimal(report.remitted_gains(), 2))}}
+\begin{itemize}
+\item{Total remitted taxable gains without tax relief: £\VAR{ "{:,}".format(round_decimal(report.remitted_gains_no_tax_relief(), 2))}}
+\item{Total remitted taxable gains with tax relief: £\VAR{ "{:,}".format(round_decimal(report.remitted_gains_with_tax_relief()[0], 2))} -- foreign tax paid: £\VAR{ "{:,}".format(round_decimal(report.remitted_gains_with_tax_relief()[1], 2))}}
+\end{itemize}
 \vspace{0.5cm}
 
 
@@ -105,10 +109,8 @@ Mixed funds calculations for
 \BLOCK{ for entry in entries }
 % -------- Narrative row --------
 \multicolumn{\VAR{ columns|length }}{|p{\textwidth}|}{
-\vspace{0.4em}
 \VAR{ latex_safe(entry.message) }
 \BLOCK{ if entry.movements }
-\vspace{0.4em}
 \begin{itemize}
   \BLOCK{ for y, c, a in entry.movements }
     \item \VAR{ y } --  \VAR{number_to_letter[c.value] } : \VAR{ c.name.replace("_", " ") }:
@@ -117,7 +119,6 @@ Mixed funds calculations for
 \end{itemize}
 \BLOCK{ endif }
 \BLOCK{ if entry.remitted_tax_implications }
-\vspace{0.4em}
 \textit{Remitted tax implications:}
 \begin{itemize}
   \BLOCK{ for income_type, values in entry.remitted_tax_implications.items() }

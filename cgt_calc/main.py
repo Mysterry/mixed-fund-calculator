@@ -1594,7 +1594,7 @@ class CapitalGainsCalculator:
                             tax_movement = aggregate_dicts(owr_tax, non_owr_tax)
 
                             message = (
-                            "[MIXED FUND EVENT] RSU vesting on %s in %s %s units (%s post-tax) in a tax year filed on remittance basis "
+                            "RSU vesting on %s in %s %s units (%s post-tax) in a tax year filed on remittance basis "
                             "leads to £%s deposited in employment income and %s deposited in foreign income (OWR)"
                             ) % (
                             date_index,
@@ -1620,7 +1620,7 @@ class CapitalGainsCalculator:
                             movement, tax_movement = composition.add_money(tax_year, MixedFundMoneyCategory.EMPLOYMENT_INCOME, transaction.quantity * transaction.price - transaction.fees)
 
                             message = (
-                            "[MIXED FUND EVENT] RSU vesting on %s in %s %s units (%s post-tax) in a tax year filed on arising basis "
+                            "RSU vesting on %s in %s %s units (%s post-tax) in a tax year filed on arising basis "
                             "leads to £%s deposited in employment income"
                             ) % (
                             date_index,
@@ -1645,7 +1645,7 @@ class CapitalGainsCalculator:
                             # If this is a non-UK-taxed transfer-in, add in the foreign income
                             movement, tax_movement = composition.add_money(tax_year, MixedFundMoneyCategory.RELEVANT_FOREIGN_INCOME, transaction.amount - transaction.fees)
                             message = (
-                            "[MIXED FUND EVENT] Transfer-in on %s in %s of non-UK taxed money leads to £%s "
+                            "Transfer-in on %s in %s of non-UK taxed money leads to £%s "
                             "deposited in foreign income"
                             ) % (
                             date_index,
@@ -1668,7 +1668,7 @@ class CapitalGainsCalculator:
                             # Positive fees & adjustments will also go there
                             movement, tax_movement = composition.add_money(tax_year, MixedFundMoneyCategory.EMPLOYMENT_INCOME, transaction.amount - transaction.fees)
                             message = (
-                            "[MIXED FUND EVENT] Transfer-in on %s in %s of UK taxed money leads to £%s deposited "
+                            "Transfer-in on %s in %s of UK taxed money leads to £%s deposited "
                             "in employment income"
                             ) % (
                             date_index,
@@ -1693,7 +1693,7 @@ class CapitalGainsCalculator:
                             # If this is a transfer out to overseas, then we take the money prorated on all buckets, as per RDRM35420
                             movement, tax_movement = composition.withdraw_money_prorated(withdrawal)
                             message = (
-                            "[MIXED FUND EVENT] Transfer-out on %s in %s to overseas destination leads to £%s "
+                            "Transfer-out on %s in %s to overseas destination leads to £%s "
                             "removed prorated on all buckets"
                             ) % (
                             date_index,
@@ -1716,7 +1716,7 @@ class CapitalGainsCalculator:
                             movement, tax_movement = composition.withdraw_money_buckets_order(withdrawal)
 
                             message = (
-                            "[MIXED FUND EVENT] Transfer-out on %s in %s to the UK: remittance leads to £%s removed following the ordering rules"
+                            "Transfer-out on %s in %s to the UK: remittance leads to £%s removed following the ordering rules"
                             ) % (
                             date_index,
                             broker,
@@ -1769,7 +1769,7 @@ class CapitalGainsCalculator:
                             movement, tax_movement = composition.add_money(tax_year, MixedFundMoneyCategory.FOREIGN_CHARGEABLE_GAINS_SUBJECT_TO_A_FOREIGN_FAX, amount, tax_amount)
 
                             message = (
-                            "[MIXED FUND EVENT] Interest on %s in %s accrued leads to £%s deposited in foreign gains " 
+                            "Interest on %s in %s accrued leads to £%s deposited in foreign gains " 
                             "subject to foreign tax with foreign tax (foreign tax: £%s) "
                             ) % (
                             date_index,
@@ -1793,7 +1793,7 @@ class CapitalGainsCalculator:
                             movement, tax_movement = composition.add_money(tax_year, MixedFundMoneyCategory.FOREIGN_CHARGEABLE_GAINS, transaction.amount - transaction.fees)
 
                             message = (
-                            "[MIXED FUND EVENT] Interest on %s in %s accrued "
+                            "Interest on %s in %s accrued "
                             "without foreign tax leads to £%s deposited in foreign gains"
                             ) % (
                             date_index,
@@ -1821,7 +1821,7 @@ class CapitalGainsCalculator:
                             movement, tax_movement = composition.add_money(tax_year, MixedFundMoneyCategory.FOREIGN_CHARGEABLE_GAINS_SUBJECT_TO_A_FOREIGN_FAX, amount, tax_amount)
 
                             message = (
-                            "[MIXED FUND EVENT] %s Dividend on %s in %s accrued leads to £%s deposited in foreign " 
+                            "%s Dividend on %s in %s accrued leads to £%s deposited in foreign " 
                             " gains subject to foreign tax (foreign tax: £%s) "
                             ) % (
                             transaction.symbol,
@@ -1846,7 +1846,7 @@ class CapitalGainsCalculator:
                             movement, tax_movement = composition.add_money(tax_year, MixedFundMoneyCategory.FOREIGN_CHARGEABLE_GAINS, transaction.amount - transaction.fees)
 
                             message = (
-                            "[MIXED FUND EVENT] %s Dividend on %s in %s accrued "
+                            "%s Dividend on %s in %s accrued "
                             "without foreign tax leads to £%s deposited in foreign gains"
                             ) % (
                             transaction.symbol,
@@ -1872,7 +1872,7 @@ class CapitalGainsCalculator:
                             movement, tax_movement = composition.add_money(tax_year, MixedFundMoneyCategory.OTHER_INCOME, transaction.amount - transaction.fees)
 
                             message = (
-                            "[MIXED FUND EVENT] Adjustments accrued on %s in %s leads to £%s deposited "
+                            "Adjustments accrued on %s in %s leads to £%s deposited "
                             "in pure capital"
                             ) % (
                             date_index,
@@ -1895,7 +1895,7 @@ class CapitalGainsCalculator:
                             withdrawal = -transaction.amount - transaction.fees
                             movement, tax_movement = composition.withdraw_money_prorated(withdrawal)
                             message = (
-                            "[MIXED FUND EVENT] Fee/adjustment on %s in %s treated as overseas transfer leads to "
+                            "Fee/adjustment on %s in %s treated as overseas transfer leads to "
                             "£%s removed prorated on all buckets"
                             ) % (
                             date_index,
@@ -1963,7 +1963,7 @@ class CapitalGainsCalculator:
                                 movement, tax_movement = composition.add_money(tax_year, MixedFundMoneyCategory.FOREIGN_CHARGEABLE_GAINS, chargeable_gain)
 
                                 message = (
-                                "[MIXED FUND EVENT] %s sale on %s in %s of %s units via %s "
+                                "%s sale on %s in %s of %s units via %s "
                                  "leads to £%s capital gain"
                                 ) % (
                                  transaction.symbol,

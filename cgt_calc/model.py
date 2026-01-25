@@ -753,6 +753,16 @@ class CapitalGainsReport:
             - self.total_dividend_taxes_in_tax_treaties_amount(),
         )
 
+    def remittance(self) -> Decimal:
+        total = Decimal(0)
+        for mixed_fund_log in self.mixed_funds_log.values():
+            for item in mixed_fund_log:
+                if (item.movement
+                    and RemittedIncomeType.INCOME in item.remitted_tax_implications.keys()):
+                    income, foreign_tax = item.remitted_tax_implications[RemittedIncomeType.INCOME]
+                    total += income
+        return total
+
     def remitted_income(self) -> Decimal:
         total = Decimal(0)
         for mixed_fund_log in self.mixed_funds_log.values():
