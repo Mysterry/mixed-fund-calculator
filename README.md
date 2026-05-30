@@ -117,6 +117,32 @@ You will need:
   receive equity awards in your account (e.g. for Alphabet/Google employees). Follow the same
   procedure as in the normal transaction history but selecting your Equity Award account.
 
+If you need to combine several overlapping exports, use the Schwab merge helper first:
+
+```shell
+cgt-schwab-merge \
+  --transactions-in schwab_2020_2024.csv schwab_2024_2026.csv \
+  --transactions-out schwab_transactions_merged.csv \
+  --awards-in schwab_awards_2020_2024.csv schwab_awards_2024_2026.csv \
+  --awards-out schwab_awards_merged.csv
+```
+
+The merger only checks that the headers match and then concatenates the rows in input order.
+It does not try to interpret Schwab-specific meaning or deduplicate overlaps.
+
+If you need to build or extend a transfer-annotation file from a transaction export, use:
+
+```shell
+cgt-transfer \
+  --transactions-file schwab_transactions.csv \
+  --existing-transfers-file schwab_transfer.csv \
+  --output-file schwab_transfer_new.csv
+```
+
+The tool scans the Schwab transaction file for transfer-related rows, reuses any matching
+annotations from the existing transfer file, prompts for missing destination/origin values, and
+fails if the existing transfer file contains rows that do not appear in the transaction file.
+
 Example usage for the tax year 2020/21:
 
 ```shell

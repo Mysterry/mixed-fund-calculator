@@ -72,20 +72,19 @@ Mixed funds calculations for
 \vspace{0.5cm}
 \section*{Mixed Funds Events}
 \BLOCK{ for broker, entries in report.mixed_funds_log.items() }
-\subsection*{\VAR{ broker }}
 \BLOCK{ set columns = report.mixed_funds_columns[broker] }
+\BLOCK{ if columns|length > 0 }
+\subsection*{\VAR{ broker }}
+\typeout{DEBUG: broker=\VAR{ broker }, columns_length=\VAR{ columns|length }}
 % ================= FLEXIBLE TABLE =================
 \begin{tabularx}{\textwidth}{|*{\VAR{ columns|length }}{>{\RaggedRight\arraybackslash}p{\VAR{ column_width }cm}|}}
 \hline
 % -------- YEAR HEADER ROW (merged) --------
-\BLOCK{ set ns = namespace(current_year=none, year_span=0, output='') }
+\BLOCK{ set ns = namespace(current_year=none, year_span=0, output=[]) }
 \BLOCK{ for tax_year, category in columns }
   \BLOCK{ if tax_year != ns.current_year }
     \BLOCK{ if ns.current_year is not none }
-      \BLOCK{ set ns.output = ns.output ~ '\\multicolumn{' ~ ns.year_span ~ '}{|c|}{\\textbf{' ~ ns.current_year ~ '}}' }
-      \BLOCK{ if not loop.last }
-        \BLOCK{ set ns.output = ns.output ~ ' & ' }
-      \BLOCK{ endif }
+      \BLOCK{ set _ = ns.output.append('\\multicolumn{' ~ ns.year_span ~ '}{|c|}{\\textbf{' ~ ns.current_year ~ '}}') }
     \BLOCK{ endif }
     \BLOCK{ set ns.current_year = tax_year }
     \BLOCK{ set ns.year_span = 1 }
@@ -93,10 +92,10 @@ Mixed funds calculations for
     \BLOCK{ set ns.year_span = ns.year_span + 1 }
   \BLOCK{ endif }
   \BLOCK{ if loop.last }
-    \BLOCK{ set ns.output = ns.output ~ '\\multicolumn{' ~ ns.year_span ~ '}{|c|}{\\textbf{' ~ ns.current_year ~ '}}' }
+    \BLOCK{ set _ = ns.output.append('\\multicolumn{' ~ ns.year_span ~ '}{|c|}{\\textbf{' ~ ns.current_year ~ '}}') }
   \BLOCK{ endif }
 \BLOCK{ endfor }
-\VAR{ ns.output } \\
+\VAR{ ns.output | join(' & ') } \\
 \hline
 % -------- CATEGORY LETTER ROW --------
 \BLOCK{ for tax_year, category in columns }
@@ -146,5 +145,6 @@ Mixed funds calculations for
 \BLOCK{ endfor }
 \end{tabularx}
 \clearpage
+\BLOCK{ endif }
 \BLOCK{ endfor }
 \end{document}

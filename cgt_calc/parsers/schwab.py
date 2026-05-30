@@ -16,7 +16,7 @@ from cgt_calc.exceptions import (
     ParsingError,
     SymbolMissingError,
     UnexpectedColumnCountError,
-    UnexpectedRowCountError,
+    UnexpectedRowCountError, InvalidTransactionError,
 )
 from cgt_calc.model import ActionType, BrokerTransaction
 
@@ -164,6 +164,63 @@ def action_from_str(label: str, file: Path) -> ActionType:
     raise ParsingError(file, f"Unknown action: '{label}'")
 
 
+def parse_schwab_date(
+    date_text: str,
+    file: Path,
+    row_dict: OrderedDict[str, str],
+) -> datetime.date:
+    """Parse a Schwab date field, accepting the 'as of' suffix."""
+
+    as_of_str = " as of "
+    if as_of_str in date_text:
+        date_text = date_text[: date_text.find(as_of_str)]
+    try:
+        return datetime.datetime.strptime(date_text, "%m/%d/%Y").date()
+    except ValueError as exc:
+        raise ParsingError(
+            file, f"Invalid date format: {date_text} from row: {row_dict}"
+        ) from exc
+
+
+def parse_schwab_money(
+    amount_text: str,
+    file: Path,
+    row_dict: OrderedDict[str, str],
+    *,
+    allow_blank: bool = True,
+) -> Decimal | None:
+    """Parse a Schwab money field."""
+
+    if amount_text == "":
+        if allow_blank:
+            return None
+        raise ParsingError(file, f"Missing amount from row: {row_dict}")
+
+    normalized = amount_text.replace("$", "").replace(",", "")
+    if normalized.startswith("(") and normalized.endswith(")"):
+        normalized = f"-{normalized[1:-1]}"
+    try:
+        return Decimal(normalized)
+    except Exception as exc:  # noqa: BLE001
+        raise ParsingError(
+            file, f"Invalid amount format: {amount_text} from row: {row_dict}"
+        ) from exc
+
+
+def format_schwab_date(date: datetime.date) -> str:
+    """Render a Schwab date field."""
+
+    return f"{date.month}/{date.day}/{date.year}"
+
+
+def format_schwab_money(amount: Decimal | None) -> str:
+    """Render a Schwab money field."""
+
+    if amount is None:
+        return ""
+    return format(amount, ".2f")
+
+
 @dataclass
 class AwardInfos:
     """Class to store initial stock prices and full award quantity (pre-tax withholding) in the form:
@@ -202,29 +259,18 @@ class SchwabTransfer(BrokerTransaction):
             raise UnexpectedColumnCountError(
                 list(row_dict.values()), TRANSFER_COLUMNS_NUM, file
             )
-        as_of_str = " as of "
         date_header = SchwabTransfersFileRequiredHeaders.DATE.value
-        if as_of_str in row_dict[date_header]:
-            index = row_dict[date_header].find(as_of_str)
-            date_str = row_dict[date_header][:index]
-        else:
-            date_str = row_dict[date_header]
-        try:
-            date = datetime.datetime.strptime(date_str, "%m/%d/%Y").date()
-        except ValueError as exc:
-            raise ParsingError(
-                file, f"Invalid date format: {date_str} from row: {row_dict}"
-            ) from exc
+        date = parse_schwab_date(row_dict[date_header], file, row_dict)
         action_header = SchwabTransfersFileRequiredHeaders.ACTION.value
         self.raw_action = row_dict[action_header]
         action = action_from_str(self.raw_action, file)
         description_header = SchwabTransfersFileRequiredHeaders.DESCRIPTION.value
         description = row_dict[description_header]
         amount_header = SchwabTransfersFileRequiredHeaders.AMOUNT.value
-        amount = (
-            Decimal(row_dict[amount_header].replace("$", ""))
-            if row_dict[amount_header] != ""
-            else None
+        amount = parse_schwab_money(
+            row_dict[amount_header],
+            file,
+            row_dict,
         )
         destination_header = SchwabTransfersFileRequiredHeaders.DESTINATION.value
         if row_dict[destination_header] in [d.value for d in Destination]:
@@ -291,12 +337,15 @@ class SchwabTransfer(BrokerTransaction):
     ) -> SchwabTransfer:
         """Create and post process a SchwabTransfer"""
         from decimal import InvalidOperation
+        transfer = None
         try:
             transfer = SchwabTransfer(row_dict, file)
         except InvalidOperation:
             print(row_dict)
-
-        return transfer
+        if transfer:
+            return transfer
+        else:
+            raise InvalidTransactionError(row_dict, file)
 
 
 class SchwabTransaction(BrokerTransaction):
@@ -315,19 +364,8 @@ class SchwabTransaction(BrokerTransaction):
             )
         if len(row_dict) == OLD_COLUMNS_NUM and list(row_dict.values())[-1] != "":
             raise ParsingError(file, f"Column {OLD_COLUMNS_NUM} should be empty")
-        as_of_str = " as of "
         date_header = SchwabTransactionsFileRequiredHeaders.DATE.value
-        if as_of_str in row_dict[date_header]:
-            index = row_dict[date_header].find(as_of_str)
-            date_str = row_dict[date_header][:index]
-        else:
-            date_str = row_dict[date_header]
-        try:
-            date = datetime.datetime.strptime(date_str, "%m/%d/%Y").date()
-        except ValueError as exc:
-            raise ParsingError(
-                file, f"Invalid date format: {date_str} from row: {row_dict}"
-            ) from exc
+        date = parse_schwab_date(row_dict[date_header], file, row_dict)
         action_header = SchwabTransactionsFileRequiredHeaders.ACTION.value
         self.raw_action = row_dict[action_header]
         action = action_from_str(self.raw_action, file)
@@ -338,11 +376,7 @@ class SchwabTransaction(BrokerTransaction):
         description_header = SchwabTransactionsFileRequiredHeaders.DESCRIPTION.value
         description = row_dict[description_header]
         price_header = SchwabTransactionsFileRequiredHeaders.PRICE.value
-        price = (
-            Decimal(row_dict[price_header].replace("$", "").replace(",", ""))
-            if row_dict[price_header] != ""
-            else None
-        )
+        price = parse_schwab_money(row_dict[price_header], file, row_dict)
         quantity_header = SchwabTransactionsFileRequiredHeaders.QUANTITY.value
         quantity = (
             Decimal(row_dict[quantity_header].replace(",", ""))
@@ -350,17 +384,11 @@ class SchwabTransaction(BrokerTransaction):
             else None
         )
         fees_header = SchwabTransactionsFileRequiredHeaders.FEES_AND_COMM.value
-        fees = (
-            Decimal(row_dict[fees_header].replace("$", ""))
-            if row_dict[fees_header] != ""
-            else Decimal(0)
-        )
+        fees = parse_schwab_money(row_dict[fees_header], file, row_dict)
+        if fees is None:
+            fees = Decimal(0)
         amount_header = SchwabTransactionsFileRequiredHeaders.AMOUNT.value
-        amount = (
-            Decimal(row_dict[amount_header].replace("$", ""))
-            if row_dict[amount_header] != ""
-            else None
-        )
+        amount = parse_schwab_money(row_dict[amount_header], file, row_dict)
 
         currency = "USD"
         broker = "Charles Schwab"
@@ -692,7 +720,7 @@ def read_schwab_transactions(
 
     transfers = _read_schwab_transfers(schwab_transfers_file)
 
-    with transactions_file.open(encoding="utf-8") as csv_file:
+    with transactions_file.open(encoding="utf-8-sig") as csv_file:
         print(f"Parsing {transactions_file}...")
         lines = list(csv.reader(csv_file))
     if not lines:
@@ -741,7 +769,7 @@ def _read_schwab_awards(
     headers = []
     lines = []
 
-    with schwab_award_transactions_file.open(encoding="utf-8") as csv_file:
+    with schwab_award_transactions_file.open(encoding="utf-8-sig") as csv_file:
         print(f"Parsing {schwab_award_transactions_file}...")
         lines = list(csv.reader(csv_file))
     if not lines:
@@ -755,7 +783,7 @@ def _read_schwab_awards(
     if not required_headers.issubset(headers):
         raise ParsingError(
             schwab_award_transactions_file,
-            f"Missing columns in awards file: {required_headers.difference(headers)}",
+            f"Missing columns in awards file: {required_headers.difference(headers)}, received {headers}",
         )
 
     # Remove headers
@@ -826,7 +854,7 @@ def _read_schwab_transfers(
         LOGGER.warning("No Schwab transaction file provided")
         return []
 
-    with transfers_file.open(encoding="utf-8") as csv_file:
+    with transfers_file.open(encoding="utf-8-sig") as csv_file:
         print(f"Parsing {transfers_file}...")
         lines = list(csv.reader(csv_file))
     if not lines:

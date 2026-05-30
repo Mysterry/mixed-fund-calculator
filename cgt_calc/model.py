@@ -347,7 +347,7 @@ class MixedFundComposition:
         if total < withdrawal:
             raise ValueError("Cannot withdraw amount from mixed fund higher than total value")
         if withdrawal < 0:
-           raise ValueError("Cannot withdraw negative amount from mixed fund")
+           raise ValueError(f"Cannot withdraw negative amount from mixed fund in {self.broker}: {withdrawal}")
 
         while withdrawal > 0:
             tax_year, category = self.get_next_none_empty_bucket()

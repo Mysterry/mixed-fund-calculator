@@ -48,6 +48,8 @@ dependencies = [
 
 [project.scripts]
 cgt-calc = "cgt_calc.main:init"
+cgt-schwab-merge = "cgt_calc.schwab_merge:main"
+cgt-transfer = "cgt_calc.schwab_transfer:main"
 
 [dependency-groups]
 dev = [
