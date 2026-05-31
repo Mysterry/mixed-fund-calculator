@@ -546,15 +546,27 @@ class MixedFundEntry:
         message: str,
         movement: dict[int, dict[MixedFundMoneyCategory, Decimal]],
         tax_movement: dict[int, dict[MixedFundMoneyCategory, Decimal]],
-        mixed_fund_composition: MixedFundComposition,
+        mixed_fund_composition: MixedFundComposition | None = None,
+        composition: list[tuple[int, MixedFundMoneyCategory, Decimal]] | None = None,
+        tax_composition: list[tuple[int, MixedFundMoneyCategory, Decimal]] | None = None,
         remitted_tax_implications: dict[RemittedIncomeType, tuple[Decimal, Decimal]] | None = None
     ):
         """Create entry, flattening the dicts to immutable list representations."""
         self.message = message
         self.movements = get_list_representation_buckets(movement)
         self.tax_movements = get_list_representation_buckets(tax_movement)
-        self.composition = mixed_fund_composition.get_list_representation_buckets()
-        self.tax_composition = mixed_fund_composition.get_list_representation_tax_buckets()
+        if composition is not None:
+            self.composition = composition
+        elif mixed_fund_composition is not None:
+            self.composition = mixed_fund_composition.get_list_representation_buckets()
+        else:
+            raise ValueError("Either mixed_fund_composition or composition must be provided")
+        if tax_composition is not None:
+            self.tax_composition = tax_composition
+        elif mixed_fund_composition is not None:
+            self.tax_composition = mixed_fund_composition.get_list_representation_tax_buckets()
+        else:
+            raise ValueError("Either mixed_fund_composition or tax_composition must be provided")
         self.remitted_tax_implications = remitted_tax_implications
 
 
@@ -660,16 +672,39 @@ class CapitalGainsReport:
     total_foreign_interest: Decimal
     show_unrealized_gains: bool
     mixed_funds_log: dict
+    mixed_funds_recap_log: dict[str, list[MixedFundEntry]] = field(init=False)
     mixed_funds_columns: dict[str, list[tuple[int, MixedFundMoneyCategory]]] = field(init=False)
     mixed_funds_type_columns: dict[str, list[MixedFundMoneyCategory]] = field(init=False)
 
     def __post_init__(self):
 
+        self.mixed_funds_recap_log = dict()
         self.mixed_funds_columns = dict()
         self.mixed_funds_type_columns = dict()
 
         for broker in self.mixed_funds_log.keys():
             mixed_fund_log = self.mixed_funds_log[broker]
+            if mixed_fund_log:
+                start_entry = mixed_fund_log[0]
+                end_entry = mixed_fund_log[-1]
+                self.mixed_funds_recap_log[broker] = [
+                    MixedFundEntry(
+                        message="Composition at the beginning of the tax year",
+                        movement={},
+                        tax_movement={},
+                        composition=start_entry.composition,
+                        tax_composition=start_entry.tax_composition,
+                    ),
+                    MixedFundEntry(
+                        message="Composition at the end of the tax year",
+                        movement={},
+                        tax_movement={},
+                        composition=end_entry.composition,
+                        tax_composition=end_entry.tax_composition,
+                    ),
+                ]
+            else:
+                self.mixed_funds_recap_log[broker] = []
             columns = []
             categories = []
             for entry in mixed_fund_log:

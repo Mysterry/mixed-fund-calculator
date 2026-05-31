@@ -1,6 +1,6 @@
 \documentclass{article}
 % ---------- DEFINE VARIABLES FIRST ----------
-\BLOCK{ set max_number_str = "1,000,000.00" }
+\BLOCK{ set max_number_str = "1,000,000" }
 \BLOCK{ set numeric_char_width = 0.2 }
 \BLOCK{ set column_width = (max_number_str|length + 2) * numeric_char_width }
 \BLOCK{ set narrative_char_width = 0.18 }
@@ -9,12 +9,10 @@
 \BLOCK{ set total_column_width = column_width + (2 * tabcolsep) }
 \newlength{\mixedfundnumericwidth}
 \newlength{\mixedfundnumericcolwidth}
-\newlength{\mixedfundglobalnarrativewidth}
-\newlength{\mixedfundpaperwidth}
 \newlength{\mixedfundtablecontentwidth}
 \newlength{\mixedfundcolcontentwidth}
 \newlength{\mixedfundnarrativewidth}
-\settowidth{\mixedfundnumericwidth}{1,000,000.00}
+\settowidth{\mixedfundnumericwidth}{1,000,000}
 \setlength{\mixedfundnumericcolwidth}{\dimexpr \mixedfundnumericwidth + 2\tabcolsep\relax}
 \BLOCK{ set number_to_letter = {
     1: "a",
@@ -49,24 +47,12 @@
   \BLOCK{ set ns_max.max_table_width = broker_type_width }
 \BLOCK{ endif }
 \BLOCK{ endfor }
-\BLOCK{ set global_longest_message = namespace(value="") }
-\BLOCK{ for broker in report.mixed_funds_log.keys() }
-  \BLOCK{ for entry in report.mixed_funds_log[broker] }
-    \BLOCK{ if entry.message|length > global_longest_message.value|length }
-      \BLOCK{ set global_longest_message.value = entry.message }
-    \BLOCK{ endif }
-  \BLOCK{ endfor }
-\BLOCK{ endfor }
-\settowidth{\mixedfundglobalnarrativewidth}{\VAR{ latex_safe(global_longest_message.value) }}
 % ---------- PAGE: CUSTOM LANDSCAPE ----------
 \BLOCK{ set page_margin = 4 }
 \BLOCK{ set calculated_height = [ns_max.max_columns * total_column_width + page_margin, 20]|max }
-\setlength{\mixedfundpaperwidth}{\dimexpr \mixedfundnumericcolwidth * \VAR{ ns_max.max_columns } + 4cm\relax}
-\ifdim\mixedfundglobalnarrativewidth>\mixedfundpaperwidth
-  \setlength{\mixedfundpaperwidth}{\mixedfundglobalnarrativewidth}
-\fi
+\BLOCK{ set calculated_width = [ns_max.max_table_width + page_margin, 59.4]|max }
 \usepackage[
-  paperwidth=\mixedfundpaperwidth,
+  paperwidth=\VAR{ calculated_width }cm,
   paperheight=\VAR{ calculated_height }cm,
   landscape,
   margin=2cm
@@ -125,9 +111,6 @@ Mixed funds calculations for
 \setlength{\mixedfundtablecontentwidth}{\dimexpr \mixedfundnumericcolwidth * \VAR{ columns|length }\relax}
 \ifdim\mixedfundnarrativewidth>\mixedfundtablecontentwidth
   \setlength{\mixedfundtablecontentwidth}{\mixedfundnarrativewidth}
-\fi
-\ifdim\textwidth>\mixedfundtablecontentwidth
-  \setlength{\mixedfundtablecontentwidth}{\textwidth}
 \fi
 \setlength{\mixedfundcolcontentwidth}{\dimexpr (\mixedfundtablecontentwidth - 2\tabcolsep * \VAR{ columns|length } - \arrayrulewidth * (\VAR{ columns|length } + 1)) / \VAR{ columns|length }\relax}
 \begin{longtable}{|*{\VAR{ columns|length }}{>{\RaggedRight\arraybackslash}p{\mixedfundcolcontentwidth}|}}
@@ -214,6 +197,10 @@ Mixed funds calculations for
 \BLOCK{ set type_columns = report.mixed_funds_type_columns[broker] }
 \BLOCK{ if columns|length > 0 }
 \subsection*{\VAR{ broker }}
+\subsubsection*{Recap by tax year and type}
+\VAR{ render_mixed_fund_table(columns, report.mixed_funds_recap_log[broker], false) }
+\subsubsection*{Recap by type}
+\VAR{ render_mixed_fund_table(type_columns, report.mixed_funds_recap_log[broker], true) }
 \subsubsection*{By tax year and type}
 \VAR{ render_mixed_fund_table(columns, entries, false) }
 \subsubsection*{Aggregated by type}

@@ -50,8 +50,8 @@ def test_main_prints_help_when_no_arguments() -> None:
     assert "Calculate UK capital gains" in result.stdout
 
 
-def test_mixed_fund_report_exposes_type_only_columns() -> None:
-    """Mixed fund report should expose both year/type and type-only columns."""
+def test_mixed_fund_report_exposes_type_only_columns_and_recap() -> None:
+    """Mixed fund report should expose both year/type, recap and type-only columns."""
 
     from cgt_calc.model import (
         CapitalGainsReport,
@@ -86,10 +86,38 @@ def test_mixed_fund_report_exposes_type_only_columns() -> None:
         mixed_funds_log={
             "Schwab": [
                 MixedFundEntry(
-                    message="test",
+                    message="start",
                     movement={},
                     tax_movement={},
-                    mixed_fund_composition=composition,
+                    composition=[
+                        (2024, MixedFundMoneyCategory.EMPLOYMENT_INCOME, Decimal(10))
+                    ],
+                    tax_composition=[
+                        (2024, MixedFundMoneyCategory.EMPLOYMENT_INCOME, Decimal(2))
+                    ],
+                ),
+                MixedFundEntry(
+                    message="end",
+                    movement={},
+                    tax_movement={},
+                    composition=[
+                        (2025, MixedFundMoneyCategory.EMPLOYMENT_INCOME, Decimal(5)),
+                        (
+                            2025,
+                            MixedFundMoneyCategory.RELEVANT_FOREIGN_INCOME,
+                            Decimal(7),
+                        ),
+                        (2024, MixedFundMoneyCategory.EMPLOYMENT_INCOME, Decimal(3)),
+                    ],
+                    tax_composition=[
+                        (2025, MixedFundMoneyCategory.EMPLOYMENT_INCOME, Decimal(1)),
+                        (
+                            2025,
+                            MixedFundMoneyCategory.RELEVANT_FOREIGN_INCOME,
+                            Decimal(4),
+                        ),
+                        (2024, MixedFundMoneyCategory.EMPLOYMENT_INCOME, Decimal(1)),
+                    ],
                 )
             ]
         },
@@ -103,6 +131,18 @@ def test_mixed_fund_report_exposes_type_only_columns() -> None:
     assert report.mixed_funds_type_columns["Schwab"] == [
         MixedFundMoneyCategory.EMPLOYMENT_INCOME,
         MixedFundMoneyCategory.RELEVANT_FOREIGN_INCOME,
+    ]
+    assert [entry.message for entry in report.mixed_funds_recap_log["Schwab"]] == [
+        "Composition at the beginning of the tax year",
+        "Composition at the end of the tax year",
+    ]
+    assert report.mixed_funds_recap_log["Schwab"][0].composition == [
+        (2024, MixedFundMoneyCategory.EMPLOYMENT_INCOME, Decimal(10))
+    ]
+    assert report.mixed_funds_recap_log["Schwab"][1].composition == [
+        (2025, MixedFundMoneyCategory.EMPLOYMENT_INCOME, Decimal(5)),
+        (2025, MixedFundMoneyCategory.RELEVANT_FOREIGN_INCOME, Decimal(7)),
+        (2024, MixedFundMoneyCategory.EMPLOYMENT_INCOME, Decimal(3)),
     ]
 
 
