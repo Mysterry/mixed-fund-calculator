@@ -1,7 +1,21 @@
 \documentclass{article}
 % ---------- DEFINE VARIABLES FIRST ----------
-\BLOCK{ set column_width = 1.5 }
+\BLOCK{ set max_number_str = "1,000,000.00" }
+\BLOCK{ set numeric_char_width = 0.2 }
+\BLOCK{ set column_width = (max_number_str|length + 2) * numeric_char_width }
+\BLOCK{ set narrative_char_width = 0.18 }
+\BLOCK{ set narrative_padding_chars = 20 }
 \BLOCK{ set tabcolsep = 0.14 }
+\BLOCK{ set total_column_width = column_width + (2 * tabcolsep) }
+\newlength{\mixedfundnumericwidth}
+\newlength{\mixedfundnumericcolwidth}
+\newlength{\mixedfundglobalnarrativewidth}
+\newlength{\mixedfundpaperwidth}
+\newlength{\mixedfundtablecontentwidth}
+\newlength{\mixedfundcolcontentwidth}
+\newlength{\mixedfundnarrativewidth}
+\settowidth{\mixedfundnumericwidth}{1,000,000.00}
+\setlength{\mixedfundnumericcolwidth}{\dimexpr \mixedfundnumericwidth + 2\tabcolsep\relax}
 \BLOCK{ set number_to_letter = {
     1: "a",
     2: "b",
@@ -13,33 +27,61 @@
     8: "h",
     9: "i"
 } }
-% ---------- CALCULATE MAX COLUMNS ----------
-\BLOCK{ set ns_max = namespace(max_columns=0) }
+% ---------- CALCULATE MAX WIDTHS ----------
+\BLOCK{ set ns_max = namespace(max_columns=0, max_table_width=0) }
 \BLOCK{ for broker in report.mixed_funds_log.keys() }
   \BLOCK{ if report.mixed_funds_columns[broker]|length > ns_max.max_columns }
     \BLOCK{ set ns_max.max_columns = report.mixed_funds_columns[broker]|length }
   \BLOCK{ endif }
+\BLOCK{ set broker_narrative_chars = namespace(value=0) }
+\BLOCK{ for entry in report.mixed_funds_log[broker] }
+  \BLOCK{ if entry.message|length > broker_narrative_chars.value }
+    \BLOCK{ set broker_narrative_chars.value = entry.message|length }
+  \BLOCK{ endif }
 \BLOCK{ endfor }
+\BLOCK{ set broker_narrative_width = (broker_narrative_chars.value + narrative_padding_chars) * narrative_char_width }
+\BLOCK{ set broker_detailed_width = [report.mixed_funds_columns[broker]|length * total_column_width, broker_narrative_width]|max }
+\BLOCK{ set broker_type_width = [report.mixed_funds_type_columns[broker]|length * total_column_width, broker_narrative_width]|max }
+\BLOCK{ if broker_detailed_width > ns_max.max_table_width }
+  \BLOCK{ set ns_max.max_table_width = broker_detailed_width }
+\BLOCK{ endif }
+\BLOCK{ if broker_type_width > ns_max.max_table_width }
+  \BLOCK{ set ns_max.max_table_width = broker_type_width }
+\BLOCK{ endif }
+\BLOCK{ endfor }
+\BLOCK{ set global_longest_message = namespace(value="") }
+\BLOCK{ for broker in report.mixed_funds_log.keys() }
+  \BLOCK{ for entry in report.mixed_funds_log[broker] }
+    \BLOCK{ if entry.message|length > global_longest_message.value|length }
+      \BLOCK{ set global_longest_message.value = entry.message }
+    \BLOCK{ endif }
+  \BLOCK{ endfor }
+\BLOCK{ endfor }
+\settowidth{\mixedfundglobalnarrativewidth}{\VAR{ latex_safe(global_longest_message.value) }}
 % ---------- PAGE: CUSTOM LANDSCAPE ----------
-\BLOCK{ set total_column_width = column_width + (2 * tabcolsep) }
 \BLOCK{ set page_margin = 4 }
 \BLOCK{ set calculated_height = [ns_max.max_columns * total_column_width + page_margin, 20]|max }
+\setlength{\mixedfundpaperwidth}{\dimexpr \mixedfundnumericcolwidth * \VAR{ ns_max.max_columns } + 4cm\relax}
+\ifdim\mixedfundglobalnarrativewidth>\mixedfundpaperwidth
+  \setlength{\mixedfundpaperwidth}{\mixedfundglobalnarrativewidth}
+\fi
 \usepackage[
-  paperwidth=59.4cm,
+  paperwidth=\mixedfundpaperwidth,
   paperheight=\VAR{ calculated_height }cm,
   landscape,
   margin=2cm
 ]{geometry}
 % ---------- PACKAGES ----------
 \usepackage[utf8]{inputenc}
+\usepackage{textcomp}
 \usepackage{array}
 \usepackage{ragged2e}
 \usepackage{booktabs}
-\usepackage{ltablex}  % Supports long tables with X columns
-\keepXColumns
+\usepackage{longtable}
 \setlength{\parindent}{0pt}
 \setlength{\tabcolsep}{\VAR{ tabcolsep }cm}
 \renewcommand{\arraystretch}{1.25}
+\newcommand{\GBP}{\textsterling{}}
 \begin{document}
 \centerline{\Large\bfseries
 Mixed funds calculations for
@@ -49,18 +91,17 @@ Mixed funds calculations for
 
 \section*{Remittance tax implications across mixed funds:}
 
-\subsection*{Total remitted taxable income: £\VAR{ "{:,}".format(round_decimal(report.remitted_income(), 2))}}
+\subsection*{Total remitted taxable income: \GBP\VAR{ "{:,}".format(round_decimal(report.remitted_income(), 2))}}
 \begin{itemize}
-\item{Total remitted taxable income without tax relief: £\VAR{ "{:,}".format(round_decimal(report.remitted_income_no_tax_relief(), 2))}}
-\item{Total remitted taxable income with tax relief: £\VAR{ "{:,}".format(round_decimal(report.remitted_income_with_tax_relief()[0], 2))} -- foreign tax paid: £\VAR{ "{:,}".format(round_decimal(report.remitted_income_with_tax_relief()[1], 2))}}
+\item{Total remitted taxable income without tax relief: \GBP\VAR{ "{:,}".format(round_decimal(report.remitted_income_no_tax_relief(), 2))}}
+\item{Total remitted taxable income with tax relief: \GBP\VAR{ "{:,}".format(round_decimal(report.remitted_income_with_tax_relief()[0], 2))} -- foreign tax paid: \GBP\VAR{ "{:,}".format(round_decimal(report.remitted_income_with_tax_relief()[1], 2))}}
 \end{itemize}
-\subsection*{Total remitted taxable gains: £\VAR{ "{:,}".format(round_decimal(report.remitted_gains(), 2))}}
+\subsection*{Total remitted taxable gains: \GBP\VAR{ "{:,}".format(round_decimal(report.remitted_gains(), 2))}}
 \begin{itemize}
-\item{Total remitted taxable gains without tax relief: £\VAR{ "{:,}".format(round_decimal(report.remitted_gains_no_tax_relief(), 2))}}
-\item{Total remitted taxable gains with tax relief: £\VAR{ "{:,}".format(round_decimal(report.remitted_gains_with_tax_relief()[0], 2))} -- foreign tax paid: £\VAR{ "{:,}".format(round_decimal(report.remitted_gains_with_tax_relief()[1], 2))}}
+\item{Total remitted taxable gains without tax relief: \GBP\VAR{ "{:,}".format(round_decimal(report.remitted_gains_no_tax_relief(), 2))}}
+\item{Total remitted taxable gains with tax relief: \GBP\VAR{ "{:,}".format(round_decimal(report.remitted_gains_with_tax_relief()[0], 2))} -- foreign tax paid: \GBP\VAR{ "{:,}".format(round_decimal(report.remitted_gains_with_tax_relief()[1], 2))}}
 \end{itemize}
 \vspace{0.5cm}
-
 
 % -------- LEGEND --------
 \noindent\textbf{Category Legend:}
@@ -70,16 +111,33 @@ Mixed funds calculations for
 \BLOCK{ endfor }
 \end{itemize}
 \vspace{0.5cm}
+
 \section*{Mixed Funds Events}
-\BLOCK{ for broker, entries in report.mixed_funds_log.items() }
-\BLOCK{ set columns = report.mixed_funds_columns[broker] }
-\BLOCK{ if columns|length > 0 }
-\subsection*{\VAR{ broker }}
-\typeout{DEBUG: broker=\VAR{ broker }, columns_length=\VAR{ columns|length }}
-% ================= FLEXIBLE TABLE =================
-\begin{tabularx}{\textwidth}{|*{\VAR{ columns|length }}{>{\RaggedRight\arraybackslash}p{\VAR{ column_width }cm}|}}
+
+\BLOCK{ macro render_mixed_fund_table(columns, entries, aggregate_by_category) }
+\BLOCK{ set longest_message = namespace(value="") }
+\BLOCK{ for entry in entries }
+  \BLOCK{ if entry.message|length > longest_message.value|length }
+    \BLOCK{ set longest_message.value = entry.message }
+  \BLOCK{ endif }
+\BLOCK{ endfor }
+\settowidth{\mixedfundnarrativewidth}{\VAR{ latex_safe(longest_message.value) }}
+\setlength{\mixedfundtablecontentwidth}{\dimexpr \mixedfundnumericcolwidth * \VAR{ columns|length }\relax}
+\ifdim\mixedfundnarrativewidth>\mixedfundtablecontentwidth
+  \setlength{\mixedfundtablecontentwidth}{\mixedfundnarrativewidth}
+\fi
+\ifdim\textwidth>\mixedfundtablecontentwidth
+  \setlength{\mixedfundtablecontentwidth}{\textwidth}
+\fi
+\setlength{\mixedfundcolcontentwidth}{\dimexpr (\mixedfundtablecontentwidth - 2\tabcolsep * \VAR{ columns|length } - \arrayrulewidth * (\VAR{ columns|length } + 1)) / \VAR{ columns|length }\relax}
+\begin{longtable}{|*{\VAR{ columns|length }}{>{\RaggedRight\arraybackslash}p{\mixedfundcolcontentwidth}|}}
 \hline
-% -------- YEAR HEADER ROW (merged) --------
+\BLOCK{ if aggregate_by_category }
+\BLOCK{ for category in columns }
+  \textbf{\VAR{ number_to_letter[category.value] }}\BLOCK{ if not loop.last } & \BLOCK{ endif }
+\BLOCK{ endfor } \\
+\hline
+\BLOCK{ else }
 \BLOCK{ set ns = namespace(current_year=none, year_span=0, output=[]) }
 \BLOCK{ for tax_year, category in columns }
   \BLOCK{ if tax_year != ns.current_year }
@@ -97,23 +155,20 @@ Mixed funds calculations for
 \BLOCK{ endfor }
 \VAR{ ns.output | join(' & ') } \\
 \hline
-% -------- CATEGORY LETTER ROW --------
 \BLOCK{ for tax_year, category in columns }
-  \textbf{\VAR{ number_to_letter[category.value] }}
-  \BLOCK{ if not loop.last } & \BLOCK{ endif }
+  \textbf{\VAR{ number_to_letter[category.value] }}\BLOCK{ if not loop.last } & \BLOCK{ endif }
 \BLOCK{ endfor } \\
 \hline
+\BLOCK{ endif }
 \endhead
-% ================= TABLE BODY =================
 \BLOCK{ for entry in entries }
-% -------- Narrative row --------
-\multicolumn{\VAR{ columns|length }}{|p{\textwidth}|}{
+\multicolumn{\VAR{ columns|length }}{|p{\mixedfundtablecontentwidth}|}{
 \VAR{ latex_safe(entry.message) }
 \BLOCK{ if entry.movements }
 \begin{itemize}
   \BLOCK{ for y, c, a in entry.movements }
-    \item \VAR{ y } --  \VAR{number_to_letter[c.value] } : \VAR{ c.name.replace("_", " ") }:
-          £\VAR{ "{:,}".format(round_decimal(a, 2)) }
+    \item \VAR{ y } -- \VAR{ number_to_letter[c.value] } : \VAR{ c.name.replace("_", " ") }:
+          \GBP\VAR{ "{:,}".format(round_decimal(a, 2)) }
   \BLOCK{ endfor }
 \end{itemize}
 \BLOCK{ endif }
@@ -123,27 +178,46 @@ Mixed funds calculations for
   \BLOCK{ for income_type, values in entry.remitted_tax_implications.items() }
     \BLOCK{ set remitted, foreign_tax = values }
     \item \VAR{ income_type.name.replace("_", " ") }:
-          remitted £\VAR{ "{:,}".format(round_decimal(remitted, 2)) },
-          foreign tax £\VAR{ "{:,}".format(round_decimal(foreign_tax, 2)) }
+          remitted \GBP\VAR{ "{:,}".format(round_decimal(remitted, 2)) },
+          foreign tax \GBP\VAR{ "{:,}".format(round_decimal(foreign_tax, 2)) }
   \BLOCK{ endfor }
 \end{itemize}
 \BLOCK{ endif }
 }
 \\
 \hline
-% -------- Composition row --------
 \BLOCK{ set comp = {} }
-\BLOCK{ for y, c, a in entry.composition }
-  \BLOCK{ set _ = comp.update({(y, c): a}) }
-\BLOCK{ endfor }
+\BLOCK{ if aggregate_by_category }
+  \BLOCK{ for _, category, amount in entry.composition }
+    \BLOCK{ if amount }
+      \BLOCK{ set _ = comp.update({category: comp.get(category, Decimal(0)) + amount}) }
+    \BLOCK{ endif }
+  \BLOCK{ endfor }
+\BLOCK{ else }
+  \BLOCK{ for tax_year, category, amount in entry.composition }
+    \BLOCK{ if amount }
+      \BLOCK{ set _ = comp.update({(tax_year, category): amount}) }
+    \BLOCK{ endif }
+  \BLOCK{ endfor }
+\BLOCK{ endif }
 \BLOCK{ for col in columns }
   \BLOCK{ set value = comp.get(col, Decimal(0)) }
-  \VAR{ "{:,}".format(round_decimal(value, 2)) if value != 0 else "" }
-  \BLOCK{ if not loop.last } & \BLOCK{ endif }
+  \VAR{ "{:,}".format(round_decimal(value, 2)) if value != 0 else "" }\BLOCK{ if not loop.last } & \BLOCK{ endif }
 \BLOCK{ endfor } \\
 \hline
 \BLOCK{ endfor }
-\end{tabularx}
+\end{longtable}
+\BLOCK{ endmacro }
+
+\BLOCK{ for broker, entries in report.mixed_funds_log.items() }
+\BLOCK{ set columns = report.mixed_funds_columns[broker] }
+\BLOCK{ set type_columns = report.mixed_funds_type_columns[broker] }
+\BLOCK{ if columns|length > 0 }
+\subsection*{\VAR{ broker }}
+\subsubsection*{By tax year and type}
+\VAR{ render_mixed_fund_table(columns, entries, false) }
+\subsubsection*{Aggregated by type}
+\VAR{ render_mixed_fund_table(type_columns, entries, true) }
 \clearpage
 \BLOCK{ endif }
 \BLOCK{ endfor }

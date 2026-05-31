@@ -105,13 +105,7 @@ class OWREvent:
     ):
 
         date_header = OWRFileRequiredHeaders.DATE.value
-        date_str = row_dict[date_header]
-        try:
-            self.date = datetime.datetime.strptime(date_str, "%m/%d/%Y").date()
-        except ValueError as exc:
-            raise ParsingError(
-                file, f"Invalid date format: {date_str} from row: {row_dict}"
-            ) from exc
+        self.date = _parse_owr_date(row_dict[date_header], file, row_dict)
         broker_header = OWRFileRequiredHeaders.BROKER.value
         self.broker = row_dict[broker_header]
         symbol_header = OWRFileRequiredHeaders.SYMBOL.value
@@ -126,6 +120,19 @@ class OWREvent:
         self.working_days = Decimal(row_dict[working_days_header])
         overseas_working_days_header = OWRFileRequiredHeaders.OVERSEAS_WORKING_DAYS.value
         self.overseas_working_days = Decimal(row_dict[overseas_working_days_header])
+
+
+def _parse_owr_date(date_str: str, file, row_dict: OrderedDict[str, str]) -> datetime.date:
+    """Parse an OWR vest date."""
+
+    for date_format in ("%m/%d/%Y", "%Y-%m-%d"):
+        try:
+            return datetime.datetime.strptime(date_str, date_format).date()
+        except ValueError:
+            continue
+    raise ParsingError(
+        file, f"Invalid date format: {date_str} from row: {row_dict}"
+    )
 
 def read_remittance_basis(
     remittance_basis_file: Path | None,

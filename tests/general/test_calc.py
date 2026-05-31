@@ -50,6 +50,62 @@ def test_main_prints_help_when_no_arguments() -> None:
     assert "Calculate UK capital gains" in result.stdout
 
 
+def test_mixed_fund_report_exposes_type_only_columns() -> None:
+    """Mixed fund report should expose both year/type and type-only columns."""
+
+    from cgt_calc.model import (
+        CapitalGainsReport,
+        MixedFundComposition,
+        MixedFundEntry,
+        MixedFundMoneyCategory,
+    )
+
+    composition = MixedFundComposition("Schwab")
+    composition.add_money(2024, MixedFundMoneyCategory.EMPLOYMENT_INCOME, Decimal(10))
+    composition.add_money(2025, MixedFundMoneyCategory.EMPLOYMENT_INCOME, Decimal(5))
+    composition.add_money(
+        2025, MixedFundMoneyCategory.RELEVANT_FOREIGN_INCOME, Decimal(7)
+    )
+
+    report = CapitalGainsReport(
+        tax_year=2026,
+        portfolio=[],
+        disposal_count=0,
+        disposed_symbols=set(),
+        disposal_proceeds=Decimal(0),
+        allowable_costs=Decimal(0),
+        capital_gain=Decimal(0),
+        capital_loss=Decimal(0),
+        capital_gain_allowance=None,
+        dividend_allowance=None,
+        calculation_log={},
+        calculation_log_yields={},
+        total_uk_interest=Decimal(0),
+        total_foreign_interest=Decimal(0),
+        show_unrealized_gains=False,
+        mixed_funds_log={
+            "Schwab": [
+                MixedFundEntry(
+                    message="test",
+                    movement={},
+                    tax_movement={},
+                    mixed_fund_composition=composition,
+                )
+            ]
+        },
+    )
+
+    assert report.mixed_funds_columns["Schwab"] == [
+        (2025, MixedFundMoneyCategory.EMPLOYMENT_INCOME),
+        (2025, MixedFundMoneyCategory.RELEVANT_FOREIGN_INCOME),
+        (2024, MixedFundMoneyCategory.EMPLOYMENT_INCOME),
+    ]
+    assert report.mixed_funds_type_columns["Schwab"] == [
+        MixedFundMoneyCategory.EMPLOYMENT_INCOME,
+        MixedFundMoneyCategory.RELEVANT_FOREIGN_INCOME,
+    ]
+
+
 @pytest.mark.parametrize(
     (
         "tax_year",

@@ -78,7 +78,9 @@ def render_pdf(
             str(tmp_path),
         ]
         with log_path.open("w", encoding="utf-8") as log:
-            subprocess.run(cmd, check=True, stdout=log, stderr=subprocess.STDOUT)
+            # tabularx/table widths often need two passes to settle.
+            for _ in range(2):
+                subprocess.run(cmd, check=True, stdout=log, stderr=subprocess.STDOUT)
     except subprocess.CalledProcessError as err:
         raise LatexRenderError(log_path) from err
     finally:

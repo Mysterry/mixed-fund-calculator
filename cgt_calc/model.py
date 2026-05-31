@@ -661,21 +661,30 @@ class CapitalGainsReport:
     show_unrealized_gains: bool
     mixed_funds_log: dict
     mixed_funds_columns: dict[str, list[tuple[int, MixedFundMoneyCategory]]] = field(init=False)
+    mixed_funds_type_columns: dict[str, list[MixedFundMoneyCategory]] = field(init=False)
 
     def __post_init__(self):
 
         self.mixed_funds_columns = dict()
+        self.mixed_funds_type_columns = dict()
 
         for broker in self.mixed_funds_log.keys():
             mixed_fund_log = self.mixed_funds_log[broker]
             columns = []
+            categories = []
             for entry in mixed_fund_log:
                 composition = entry.composition
                 for (tax_year, category, amount) in composition:
                     if amount and (tax_year, category) not in columns:
                         columns.append((tax_year, category))
+                    if amount and category not in categories:
+                        categories.append(category)
             columns = sorted(columns, key=lambda x:  (-x[0], x[1].value) )
             self.mixed_funds_columns[broker] = columns
+            self.mixed_funds_type_columns[broker] = sorted(
+                categories,
+                key=lambda category: category.value,
+            )
 
 
     def _filter_calculation_log(
