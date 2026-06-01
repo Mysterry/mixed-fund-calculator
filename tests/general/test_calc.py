@@ -128,6 +128,11 @@ def test_mixed_fund_report_exposes_type_only_columns_and_recap() -> None:
         (2025, MixedFundMoneyCategory.RELEVANT_FOREIGN_INCOME),
         (2024, MixedFundMoneyCategory.EMPLOYMENT_INCOME),
     ]
+    assert report.mixed_funds_pre_post_2025_columns["Schwab"] == [
+        (True, MixedFundMoneyCategory.EMPLOYMENT_INCOME),
+        (True, MixedFundMoneyCategory.RELEVANT_FOREIGN_INCOME),
+        (False, MixedFundMoneyCategory.EMPLOYMENT_INCOME),
+    ]
     assert report.mixed_funds_type_columns["Schwab"] == [
         MixedFundMoneyCategory.EMPLOYMENT_INCOME,
         MixedFundMoneyCategory.RELEVANT_FOREIGN_INCOME,
@@ -143,6 +148,53 @@ def test_mixed_fund_report_exposes_type_only_columns_and_recap() -> None:
         (2025, MixedFundMoneyCategory.EMPLOYMENT_INCOME, Decimal(5)),
         (2025, MixedFundMoneyCategory.RELEVANT_FOREIGN_INCOME, Decimal(7)),
         (2024, MixedFundMoneyCategory.EMPLOYMENT_INCOME, Decimal(3)),
+    ]
+
+
+def test_mixed_fund_pre_post_2025_columns_handle_pre_2025_years() -> None:
+    """Pre/post-2025 recap should still work when only pre-2025 buckets exist."""
+
+    from cgt_calc.model import (
+        CapitalGainsReport,
+        MixedFundEntry,
+        MixedFundMoneyCategory,
+    )
+
+    report = CapitalGainsReport(
+        tax_year=2024,
+        portfolio=[],
+        disposal_count=0,
+        disposed_symbols=set(),
+        disposal_proceeds=Decimal(0),
+        allowable_costs=Decimal(0),
+        capital_gain=Decimal(0),
+        capital_loss=Decimal(0),
+        capital_gain_allowance=None,
+        dividend_allowance=None,
+        calculation_log={},
+        calculation_log_yields={},
+        total_uk_interest=Decimal(0),
+        total_foreign_interest=Decimal(0),
+        show_unrealized_gains=False,
+        mixed_funds_log={
+            "Schwab": [
+                MixedFundEntry(
+                    message="start",
+                    movement={},
+                    tax_movement={},
+                    composition=[
+                        (2024, MixedFundMoneyCategory.EMPLOYMENT_INCOME, Decimal(10))
+                    ],
+                    tax_composition=[
+                        (2024, MixedFundMoneyCategory.EMPLOYMENT_INCOME, Decimal(1))
+                    ],
+                )
+            ]
+        },
+    )
+
+    assert report.mixed_funds_pre_post_2025_columns["Schwab"] == [
+        (False, MixedFundMoneyCategory.EMPLOYMENT_INCOME)
     ]
 
 

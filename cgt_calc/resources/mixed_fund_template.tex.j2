@@ -25,11 +25,18 @@
     8: "h",
     9: "i"
 } }
+\BLOCK{ set pre_post_label = {
+    True: "2025 and later",
+    False: "pre-2025"
+} }
 % ---------- CALCULATE MAX WIDTHS ----------
 \BLOCK{ set ns_max = namespace(max_columns=0, max_table_width=0) }
 \BLOCK{ for broker in report.mixed_funds_log.keys() }
   \BLOCK{ if report.mixed_funds_columns[broker]|length > ns_max.max_columns }
     \BLOCK{ set ns_max.max_columns = report.mixed_funds_columns[broker]|length }
+  \BLOCK{ endif }
+  \BLOCK{ if report.mixed_funds_pre_post_2025_columns[broker]|length > ns_max.max_columns }
+    \BLOCK{ set ns_max.max_columns = report.mixed_funds_pre_post_2025_columns[broker]|length }
   \BLOCK{ endif }
 \BLOCK{ set broker_narrative_chars = namespace(value=0) }
 \BLOCK{ for entry in report.mixed_funds_log[broker] }
@@ -38,8 +45,12 @@
   \BLOCK{ endif }
 \BLOCK{ endfor }
 \BLOCK{ set broker_narrative_width = (broker_narrative_chars.value + narrative_padding_chars) * narrative_char_width }
+\BLOCK{ set broker_pre_post_width = [report.mixed_funds_pre_post_2025_columns[broker]|length * total_column_width, broker_narrative_width]|max }
 \BLOCK{ set broker_detailed_width = [report.mixed_funds_columns[broker]|length * total_column_width, broker_narrative_width]|max }
 \BLOCK{ set broker_type_width = [report.mixed_funds_type_columns[broker]|length * total_column_width, broker_narrative_width]|max }
+\BLOCK{ if broker_pre_post_width > ns_max.max_table_width }
+  \BLOCK{ set ns_max.max_table_width = broker_pre_post_width }
+\BLOCK{ endif }
 \BLOCK{ if broker_detailed_width > ns_max.max_table_width }
   \BLOCK{ set ns_max.max_table_width = broker_detailed_width }
 \BLOCK{ endif }
@@ -100,7 +111,7 @@ Mixed funds calculations for
 
 \section*{Mixed Funds Events}
 
-\BLOCK{ macro render_mixed_fund_table(columns, entries, aggregate_by_category) }
+\BLOCK{ macro render_mixed_fund_table(columns, entries, aggregate_by_category, aggregate_by_pre_post_2025) }
 \BLOCK{ set longest_message = namespace(value="") }
 \BLOCK{ for entry in entries }
   \BLOCK{ if entry.message|length > longest_message.value|length }
@@ -117,6 +128,28 @@ Mixed funds calculations for
 \hline
 \BLOCK{ if aggregate_by_category }
 \BLOCK{ for category in columns }
+  \textbf{\VAR{ number_to_letter[category.value] }}\BLOCK{ if not loop.last } & \BLOCK{ endif }
+\BLOCK{ endfor } \\
+\hline
+\BLOCK{ elif aggregate_by_pre_post_2025 }
+\BLOCK{ set ns = namespace(current_period=none, period_span=0, output=[]) }
+\BLOCK{ for is_post, category in columns }
+  \BLOCK{ if is_post != ns.current_period }
+    \BLOCK{ if ns.current_period is not none }
+      \BLOCK{ set _ = ns.output.append('\\multicolumn{' ~ ns.period_span ~ '}{|c|}{\\textbf{' ~ pre_post_label[ns.current_period] ~ '}}') }
+    \BLOCK{ endif }
+    \BLOCK{ set ns.current_period = is_post }
+    \BLOCK{ set ns.period_span = 1 }
+  \BLOCK{ else }
+    \BLOCK{ set ns.period_span = ns.period_span + 1 }
+  \BLOCK{ endif }
+  \BLOCK{ if loop.last }
+    \BLOCK{ set _ = ns.output.append('\\multicolumn{' ~ ns.period_span ~ '}{|c|}{\\textbf{' ~ pre_post_label[ns.current_period] ~ '}}') }
+  \BLOCK{ endif }
+\BLOCK{ endfor }
+\VAR{ ns.output | join(' & ') } \\
+\hline
+\BLOCK{ for _, category in columns }
   \textbf{\VAR{ number_to_letter[category.value] }}\BLOCK{ if not loop.last } & \BLOCK{ endif }
 \BLOCK{ endfor } \\
 \hline
@@ -176,6 +209,13 @@ Mixed funds calculations for
       \BLOCK{ set _ = comp.update({category: comp.get(category, Decimal(0)) + amount}) }
     \BLOCK{ endif }
   \BLOCK{ endfor }
+\BLOCK{ elif aggregate_by_pre_post_2025 }
+  \BLOCK{ for tax_year, category, amount in entry.composition }
+    \BLOCK{ if amount }
+      \BLOCK{ set key = (tax_year >= 2025, category) }
+      \BLOCK{ set _ = comp.update({key: comp.get(key, Decimal(0)) + amount}) }
+    \BLOCK{ endif }
+  \BLOCK{ endfor }
 \BLOCK{ else }
   \BLOCK{ for tax_year, category, amount in entry.composition }
     \BLOCK{ if amount }
@@ -194,17 +234,20 @@ Mixed funds calculations for
 
 \BLOCK{ for broker, entries in report.mixed_funds_log.items() }
 \BLOCK{ set columns = report.mixed_funds_columns[broker] }
+\BLOCK{ set pre_post_columns = report.mixed_funds_pre_post_2025_columns[broker] }
 \BLOCK{ set type_columns = report.mixed_funds_type_columns[broker] }
 \BLOCK{ if columns|length > 0 }
 \subsection*{\VAR{ broker }}
+\subsubsection*{Recap by pre/post 2025 and type}
+\VAR{ render_mixed_fund_table(pre_post_columns, report.mixed_funds_recap_log[broker], false, true) }
 \subsubsection*{Recap by tax year and type}
-\VAR{ render_mixed_fund_table(columns, report.mixed_funds_recap_log[broker], false) }
+\VAR{ render_mixed_fund_table(columns, report.mixed_funds_recap_log[broker], false, false) }
 \subsubsection*{Recap by type}
-\VAR{ render_mixed_fund_table(type_columns, report.mixed_funds_recap_log[broker], true) }
+\VAR{ render_mixed_fund_table(type_columns, report.mixed_funds_recap_log[broker], true, false) }
 \subsubsection*{By tax year and type}
-\VAR{ render_mixed_fund_table(columns, entries, false) }
+\VAR{ render_mixed_fund_table(columns, entries, false, false) }
 \subsubsection*{Aggregated by type}
-\VAR{ render_mixed_fund_table(type_columns, entries, true) }
+\VAR{ render_mixed_fund_table(type_columns, entries, true, false) }
 \clearpage
 \BLOCK{ endif }
 \BLOCK{ endfor }

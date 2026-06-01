@@ -673,12 +673,16 @@ class CapitalGainsReport:
     show_unrealized_gains: bool
     mixed_funds_log: dict
     mixed_funds_recap_log: dict[str, list[MixedFundEntry]] = field(init=False)
+    mixed_funds_pre_post_2025_columns: dict[
+        str, list[tuple[bool, MixedFundMoneyCategory]]
+    ] = field(init=False)
     mixed_funds_columns: dict[str, list[tuple[int, MixedFundMoneyCategory]]] = field(init=False)
     mixed_funds_type_columns: dict[str, list[MixedFundMoneyCategory]] = field(init=False)
 
     def __post_init__(self):
 
         self.mixed_funds_recap_log = dict()
+        self.mixed_funds_pre_post_2025_columns = dict()
         self.mixed_funds_columns = dict()
         self.mixed_funds_type_columns = dict()
 
@@ -705,15 +709,24 @@ class CapitalGainsReport:
                 ]
             else:
                 self.mixed_funds_recap_log[broker] = []
+            pre_post_2025_columns = []
             columns = []
             categories = []
             for entry in mixed_fund_log:
                 composition = entry.composition
                 for (tax_year, category, amount) in composition:
+                    is_post_2025 = tax_year >= 2025
+                    if amount and (is_post_2025, category) not in pre_post_2025_columns:
+                        pre_post_2025_columns.append((is_post_2025, category))
                     if amount and (tax_year, category) not in columns:
                         columns.append((tax_year, category))
                     if amount and category not in categories:
                         categories.append(category)
+            pre_post_2025_columns = sorted(
+                pre_post_2025_columns,
+                key=lambda x: (not x[0], x[1].value),
+            )
+            self.mixed_funds_pre_post_2025_columns[broker] = pre_post_2025_columns
             columns = sorted(columns, key=lambda x:  (-x[0], x[1].value) )
             self.mixed_funds_columns[broker] = columns
             self.mixed_funds_type_columns[broker] = sorted(
