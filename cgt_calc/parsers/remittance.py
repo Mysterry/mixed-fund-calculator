@@ -18,6 +18,7 @@ from cgt_calc.exceptions import (
     UnexpectedColumnCountError,
     UnexpectedRowCountError,
 )
+from cgt_calc.model import Destination
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -50,11 +51,6 @@ class TaxFilingBasis(Enum):
 
     ARISING = 0
     REMITTANCE = 1
-
-
-class Destination(str, Enum):
-    OVERSEAS = "Overseas"
-    UK = "UK"
 
 
 class Origin(Enum):

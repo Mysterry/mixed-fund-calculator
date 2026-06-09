@@ -86,17 +86,59 @@ Mixed funds calculations for
 }
 \vspace{0.5cm}
 
-\section*{Remittance tax implications across mixed funds:}
+\section*{Transfer-out breakdown across mixed funds:}
 
-\subsection*{Total remitted taxable income: \GBP\VAR{ "{:,}".format(round_decimal(report.remitted_income(), 2))}}
+\subsection*{Total transferred out: \GBP\VAR{ "{:,}".format(round_decimal(report.transferred_out_total(), 2))}}
 \begin{itemize}
-\item{Total remitted taxable income without tax relief: \GBP\VAR{ "{:,}".format(round_decimal(report.remitted_income_no_tax_relief(), 2))}}
-\item{Total remitted taxable income with tax relief: \GBP\VAR{ "{:,}".format(round_decimal(report.remitted_income_with_tax_relief()[0], 2))} -- foreign tax paid: \GBP\VAR{ "{:,}".format(round_decimal(report.remitted_income_with_tax_relief()[1], 2))}}
+
+\item \textbf{Remitted to the UK: \GBP\VAR{ "{:,}".format(round_decimal(report.remitted_total(), 2))}}
+\begin{itemize}
+  \item Income-type money remitted: \GBP\VAR{ "{:,}".format(round_decimal(report.remitted_income(), 2))}
+  \begin{itemize}
+    \item With UK income tax implication: \GBP\VAR{ "{:,}".format(round_decimal(report.remitted_income_tax_implication(), 2))}
+    \begin{itemize}
+      \item Without foreign tax relief: \GBP\VAR{ "{:,}".format(round_decimal(report.remitted_income_tax_implication_no_relief(), 2))}
+      \item With foreign tax relief: \GBP\VAR{ "{:,}".format(round_decimal(report.remitted_income_tax_implication_with_relief()[0], 2))} -- foreign tax paid: \GBP\VAR{ "{:,}".format(round_decimal(report.remitted_income_tax_implication_with_relief()[1], 2))}
+    \end{itemize}
+    \item Without UK tax implication: \GBP\VAR{ "{:,}".format(round_decimal(report.remitted_income_no_tax_implication(), 2))}
+  \end{itemize}
+  \item Capital-gain-type money remitted: \GBP\VAR{ "{:,}".format(round_decimal(report.remitted_gains(), 2))}
+  \begin{itemize}
+    \item With UK capital gains tax implication: \GBP\VAR{ "{:,}".format(round_decimal(report.remitted_gains_tax_implication(), 2))}
+    \begin{itemize}
+      \item Without foreign tax relief: \GBP\VAR{ "{:,}".format(round_decimal(report.remitted_gains_tax_implication_no_relief(), 2))}
+      \item With foreign tax relief: \GBP\VAR{ "{:,}".format(round_decimal(report.remitted_gains_tax_implication_with_relief()[0], 2))} -- foreign tax paid: \GBP\VAR{ "{:,}".format(round_decimal(report.remitted_gains_tax_implication_with_relief()[1], 2))}
+    \end{itemize}
+    \item Without UK tax implication: \GBP\VAR{ "{:,}".format(round_decimal(report.remitted_gains_no_tax_implication(), 2))}
+  \end{itemize}
+  \item From pre-2025 buckets: \GBP\VAR{ "{:,}".format(round_decimal(report.remitted_pre_2025(), 2))}
+  \item From 2025+ buckets: \GBP\VAR{ "{:,}".format(round_decimal(report.remitted_post_2025(), 2))}
+  \BLOCK{ set remitted_by_cat = report.remitted_by_category() }
+  \BLOCK{ if remitted_by_cat }
+  \item By category:
+  \begin{itemize}
+    \BLOCK{ for category, amount in remitted_by_cat.items() }
+      \item \VAR{ category.name.replace("_", " ").title() }: \GBP\VAR{ "{:,}".format(round_decimal(amount, 2)) }
+    \BLOCK{ endfor }
+  \end{itemize}
+  \BLOCK{ endif }
 \end{itemize}
-\subsection*{Total remitted taxable gains: \GBP\VAR{ "{:,}".format(round_decimal(report.remitted_gains(), 2))}}
+
+\item \textbf{Transferred overseas: \GBP\VAR{ "{:,}".format(round_decimal(report.transferred_overseas_total(), 2))}}
 \begin{itemize}
-\item{Total remitted taxable gains without tax relief: \GBP\VAR{ "{:,}".format(round_decimal(report.remitted_gains_no_tax_relief(), 2))}}
-\item{Total remitted taxable gains with tax relief: \GBP\VAR{ "{:,}".format(round_decimal(report.remitted_gains_with_tax_relief()[0], 2))} -- foreign tax paid: \GBP\VAR{ "{:,}".format(round_decimal(report.remitted_gains_with_tax_relief()[1], 2))}}
+  \item From pre-2025 buckets: \GBP\VAR{ "{:,}".format(round_decimal(report.transferred_overseas_pre_2025(), 2))}
+  \item From 2025+ buckets: \GBP\VAR{ "{:,}".format(round_decimal(report.transferred_overseas_post_2025(), 2))}
+  \BLOCK{ set overseas_by_cat = report.transferred_overseas_by_category() }
+  \BLOCK{ if overseas_by_cat }
+  \item By category:
+  \begin{itemize}
+    \BLOCK{ for category, amount in overseas_by_cat.items() }
+      \item \VAR{ category.name.replace("_", " ").title() }: \GBP\VAR{ "{:,}".format(round_decimal(amount, 2)) }
+    \BLOCK{ endfor }
+  \end{itemize}
+  \BLOCK{ endif }
+\end{itemize}
+
 \end{itemize}
 \vspace{0.5cm}
 
@@ -182,20 +224,9 @@ Mixed funds calculations for
 \VAR{ latex_safe(entry.message) }
 \BLOCK{ if entry.movements }
 \begin{itemize}
-  \BLOCK{ for y, c, a in entry.movements }
+  \BLOCK{ for y, c, a, impl, ft in entry.movements_display() }
     \item \VAR{ y } -- \VAR{ number_to_letter[c.value] } : \VAR{ c.name.replace("_", " ") }:
-          \GBP\VAR{ "{:,}".format(round_decimal(a, 2)) }
-  \BLOCK{ endfor }
-\end{itemize}
-\BLOCK{ endif }
-\BLOCK{ if entry.remitted_tax_implications }
-\textit{Remitted tax implications:}
-\begin{itemize}
-  \BLOCK{ for income_type, values in entry.remitted_tax_implications.items() }
-    \BLOCK{ set remitted, foreign_tax = values }
-    \item \VAR{ income_type.name.replace("_", " ") }:
-          remitted \GBP\VAR{ "{:,}".format(round_decimal(remitted, 2)) },
-          foreign tax \GBP\VAR{ "{:,}".format(round_decimal(foreign_tax, 2)) }
+          \GBP\VAR{ "{:,}".format(round_decimal(a, 2)) }\BLOCK{ if impl is not none } $\Rightarrow$ UK \VAR{ impl.name.replace("_", " ").lower() }\BLOCK{ endif }\BLOCK{ if ft } (foreign tax \GBP\VAR{ "{:,}".format(round_decimal(-ft, 2)) })\BLOCK{ endif }
   \BLOCK{ endfor }
 \end{itemize}
 \BLOCK{ endif }

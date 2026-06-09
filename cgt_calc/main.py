@@ -1708,7 +1708,7 @@ class CapitalGainsCalculator:
                                         movement=movement,
                                         tax_movement=tax_movement,
                                         mixed_fund_composition=composition,
-                                        remitted_tax_implications=None
+                                        destination=Destination.OVERSEAS,
                                     )
                                 )
                         else:
@@ -1724,9 +1724,9 @@ class CapitalGainsCalculator:
                             )
                             LOGGER.debug(message)
 
-                            remitted_tax_implications = dict()
+                            remitted_tax_implications = {}
                             for tax_year in movement.keys():
-                                # There is possibly a tax implication only when we remit money from a year that was taxed as remittance
+                                # There is a UK tax implication only when remitting money from a year taxed on the remittance basis
                                 if self.tax_filings.get(tax_year) == TaxFilingBasis.REMITTANCE:
                                     for category, remittance in movement[tax_year].items():
                                         if remittance:
@@ -1735,20 +1735,16 @@ class CapitalGainsCalculator:
                                                 MixedFundMoneyCategory.FOREIGN_SPECIFIC_EMPLOYMENT_INCOME,
                                                 MixedFundMoneyCategory.RELEVANT_FOREIGN_INCOME,
                                                 MixedFundMoneyCategory.OTHER_INCOME,
-                                                ]:
-                                                remitted_tax_implications[RemittedIncomeType.INCOME] = (-remittance, 0)
-                                            elif category ==  MixedFundMoneyCategory.FOREIGN_CHARGEABLE_GAINS:
-                                                remitted_tax_implications[RemittedIncomeType.CAPITAL_GAIN] = (-remittance, 0)
-                                            elif category in [
                                                 MixedFundMoneyCategory.EMPLOYMENT_INCOME_SUBJECT_TO_A_FOREIGN_FAX,
                                                 MixedFundMoneyCategory.RELEVANT_FOREIGN_INCOME_SUBJECT_TO_A_FOREIGN_FAX,
                                             ]:
-                                                foreign_tax = tax_movement[tax_year][category]
-                                                remitted_tax_implications[RemittedIncomeType.INCOME] = (-remittance, -foreign_tax)
-                                            elif category == MixedFundMoneyCategory.FOREIGN_CHARGEABLE_GAINS_SUBJECT_TO_A_FOREIGN_FAX:
-                                                foreign_tax = tax_movement[tax_year][category]
-                                                remitted_tax_implications[RemittedIncomeType.CAPITAL_GAIN] = (-remittance, -foreign_tax)
-
+                                                remitted_tax_implications[(tax_year, category)] = RemittedIncomeType.INCOME
+                                            elif category in [
+                                                MixedFundMoneyCategory.FOREIGN_CHARGEABLE_GAINS,
+                                                MixedFundMoneyCategory.FOREIGN_CHARGEABLE_GAINS_SUBJECT_TO_A_FOREIGN_FAX,
+                                            ]:
+                                                remitted_tax_implications[(tax_year, category)] = RemittedIncomeType.CAPITAL_GAIN
+                                            # EMPLOYMENT_INCOME: already UK-taxed, no further UK implication
 
                             if date_index >= tax_year_start_index:
                                 mixed_fund_log.append(
@@ -1757,7 +1753,8 @@ class CapitalGainsCalculator:
                                         movement=movement,
                                         tax_movement=tax_movement,
                                         mixed_fund_composition=composition,
-                                        remitted_tax_implications=remitted_tax_implications
+                                        remitted_tax_implications=remitted_tax_implications or None,
+                                        destination=Destination.UK,
                                     )
                                 )
                     elif transaction.action == ActionType.INTEREST:
