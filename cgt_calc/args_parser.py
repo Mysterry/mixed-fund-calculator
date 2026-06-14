@@ -394,6 +394,14 @@ Environment variables:
     # Output Options
     output_group = parser.add_argument_group("Output")
 
+    output_group.add_argument(
+        "--output_mixed_fund",
+        type=output_path_type,
+        metavar="PATH",
+        default=DEFAULT_MIXED_FUND_REPORT_PATH,
+        help="path to save the generated mixed fund PDF report (default: %(default)s)",
+    )
+
     output_mutex = output_group.add_mutually_exclusive_group()
     output_mutex.add_argument(
         "-o",
@@ -402,13 +410,6 @@ Environment variables:
         metavar="PATH",
         default=DEFAULT_REPORT_PATH,
         help="path to save the generated PDF report (default: %(default)s)",
-    )
-    output_mutex.add_argument(
-                "--output_mixed_fund",
-        type=output_path_type,
-        metavar="PATH",
-        default=DEFAULT_MIXED_FUND_REPORT_PATH,
-        help="path to save the generated mixed fund PDF report (default: %(default)s)",
     )
     output_mutex.add_argument(
         "--report",

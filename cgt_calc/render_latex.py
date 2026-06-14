@@ -10,7 +10,7 @@ import jinja2
 
 from .const import LATEX_TEMPLATE_RESOURCE, PACKAGE_NAME, MIXED_FUND_LATEX_TEMPLATE_RESOURCE
 from .exceptions import LatexRenderError, MissingExternalToolError
-from .model import CapitalGainsReport, MixedFundMoneyCategory
+from .model import CapitalGainsReport, Destination, MixedFundMoneyCategory, RemittedIncomeType
 from .util import round_decimal, strip_zeros
 
 
@@ -47,7 +47,9 @@ def render_pdf(
         strip_zeros=strip_zeros,
         Decimal=Decimal,
         latex_safe=latex_safe,
-        mixed_fund_category_class=MixedFundMoneyCategory
+        mixed_fund_category_class=MixedFundMoneyCategory,
+        Destination=Destination,
+        RemittedIncomeType=RemittedIncomeType,
     )
 
     output_path.parent.mkdir(parents=True, exist_ok=True)

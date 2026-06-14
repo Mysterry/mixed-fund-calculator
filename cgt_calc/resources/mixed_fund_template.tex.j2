@@ -75,6 +75,15 @@
 \usepackage{ragged2e}
 \usepackage{booktabs}
 \usepackage{longtable}
+\usepackage{enumitem}
+\setlistdepth{6}
+\renewlist{itemize}{itemize}{6}
+\setlist[itemize,1]{label=\textbullet}
+\setlist[itemize,2]{label=\textendash}
+\setlist[itemize,3]{label=\textasteriskcentered}
+\setlist[itemize,4]{label=\textperiodcentered}
+\setlist[itemize,5]{label=\textbullet}
+\setlist[itemize,6]{label=\textendash}
 \setlength{\parindent}{0pt}
 \setlength{\tabcolsep}{\VAR{ tabcolsep }cm}
 \renewcommand{\arraystretch}{1.25}
@@ -86,62 +95,6 @@ Mixed funds calculations for
 }
 \vspace{0.5cm}
 
-\section*{Transfer-out breakdown across mixed funds:}
-
-\subsection*{Total transferred out: \GBP\VAR{ "{:,}".format(round_decimal(report.transferred_out_total(), 2))}}
-\begin{itemize}
-
-\item \textbf{Remitted to the UK: \GBP\VAR{ "{:,}".format(round_decimal(report.remitted_total(), 2))}}
-\begin{itemize}
-  \item Income-type money remitted: \GBP\VAR{ "{:,}".format(round_decimal(report.remitted_income(), 2))}
-  \begin{itemize}
-    \item With UK income tax implication: \GBP\VAR{ "{:,}".format(round_decimal(report.remitted_income_tax_implication(), 2))}
-    \begin{itemize}
-      \item Without foreign tax relief: \GBP\VAR{ "{:,}".format(round_decimal(report.remitted_income_tax_implication_no_relief(), 2))}
-      \item With foreign tax relief: \GBP\VAR{ "{:,}".format(round_decimal(report.remitted_income_tax_implication_with_relief()[0], 2))} -- foreign tax paid: \GBP\VAR{ "{:,}".format(round_decimal(report.remitted_income_tax_implication_with_relief()[1], 2))}
-    \end{itemize}
-    \item Without UK tax implication: \GBP\VAR{ "{:,}".format(round_decimal(report.remitted_income_no_tax_implication(), 2))}
-  \end{itemize}
-  \item Capital-gain-type money remitted: \GBP\VAR{ "{:,}".format(round_decimal(report.remitted_gains(), 2))}
-  \begin{itemize}
-    \item With UK capital gains tax implication: \GBP\VAR{ "{:,}".format(round_decimal(report.remitted_gains_tax_implication(), 2))}
-    \begin{itemize}
-      \item Without foreign tax relief: \GBP\VAR{ "{:,}".format(round_decimal(report.remitted_gains_tax_implication_no_relief(), 2))}
-      \item With foreign tax relief: \GBP\VAR{ "{:,}".format(round_decimal(report.remitted_gains_tax_implication_with_relief()[0], 2))} -- foreign tax paid: \GBP\VAR{ "{:,}".format(round_decimal(report.remitted_gains_tax_implication_with_relief()[1], 2))}
-    \end{itemize}
-    \item Without UK tax implication: \GBP\VAR{ "{:,}".format(round_decimal(report.remitted_gains_no_tax_implication(), 2))}
-  \end{itemize}
-  \item From pre-2025 buckets: \GBP\VAR{ "{:,}".format(round_decimal(report.remitted_pre_2025(), 2))}
-  \item From 2025+ buckets: \GBP\VAR{ "{:,}".format(round_decimal(report.remitted_post_2025(), 2))}
-  \BLOCK{ set remitted_by_cat = report.remitted_by_category() }
-  \BLOCK{ if remitted_by_cat }
-  \item By category:
-  \begin{itemize}
-    \BLOCK{ for category, amount in remitted_by_cat.items() }
-      \item \VAR{ category.name.replace("_", " ").title() }: \GBP\VAR{ "{:,}".format(round_decimal(amount, 2)) }
-    \BLOCK{ endfor }
-  \end{itemize}
-  \BLOCK{ endif }
-\end{itemize}
-
-\item \textbf{Transferred overseas: \GBP\VAR{ "{:,}".format(round_decimal(report.transferred_overseas_total(), 2))}}
-\begin{itemize}
-  \item From pre-2025 buckets: \GBP\VAR{ "{:,}".format(round_decimal(report.transferred_overseas_pre_2025(), 2))}
-  \item From 2025+ buckets: \GBP\VAR{ "{:,}".format(round_decimal(report.transferred_overseas_post_2025(), 2))}
-  \BLOCK{ set overseas_by_cat = report.transferred_overseas_by_category() }
-  \BLOCK{ if overseas_by_cat }
-  \item By category:
-  \begin{itemize}
-    \BLOCK{ for category, amount in overseas_by_cat.items() }
-      \item \VAR{ category.name.replace("_", " ").title() }: \GBP\VAR{ "{:,}".format(round_decimal(amount, 2)) }
-    \BLOCK{ endfor }
-  \end{itemize}
-  \BLOCK{ endif }
-\end{itemize}
-
-\end{itemize}
-\vspace{0.5cm}
-
 % -------- LEGEND --------
 \noindent\textbf{Category Legend:}
 \begin{itemize}
@@ -150,8 +103,6 @@ Mixed funds calculations for
 \BLOCK{ endfor }
 \end{itemize}
 \vspace{0.5cm}
-
-\section*{Mixed Funds Events}
 
 \BLOCK{ macro render_mixed_fund_table(columns, entries, aggregate_by_category, aggregate_by_pre_post_2025) }
 \BLOCK{ set longest_message = namespace(value="") }
@@ -263,22 +214,98 @@ Mixed funds calculations for
 \end{longtable}
 \BLOCK{ endmacro }
 
+\BLOCK{ macro category_breakdown(items) }
+\BLOCK{ if items }
+\begin{itemize}
+\BLOCK{ for category, amount in items.items() }
+  \item \VAR{ category.name.replace("_", " ").title() }: \GBP\VAR{ "{:,}".format(round_decimal(amount, 2)) }
+\BLOCK{ endfor }
+\end{itemize}
+\BLOCK{ endif }
+\BLOCK{ endmacro }
+
+\BLOCK{ macro category_breakdown_with_tax(items) }
+\BLOCK{ if items }
+\begin{itemize}
+\BLOCK{ for category, (amount, tax) in items.items() }
+  \item \VAR{ category.name.replace("_", " ").title() }: \GBP\VAR{ "{:,}".format(round_decimal(amount, 2)) }\BLOCK{ if tax } -- foreign tax paid: \GBP\VAR{ "{:,}".format(round_decimal(tax, 2)) }\BLOCK{ endif }
+\BLOCK{ endfor }
+\end{itemize}
+\BLOCK{ endif }
+\BLOCK{ endmacro }
+
 \BLOCK{ for broker, entries in report.mixed_funds_log.items() }
 \BLOCK{ set columns = report.mixed_funds_columns[broker] }
 \BLOCK{ set pre_post_columns = report.mixed_funds_pre_post_2025_columns[broker] }
 \BLOCK{ set type_columns = report.mixed_funds_type_columns[broker] }
 \BLOCK{ if columns|length > 0 }
-\subsection*{\VAR{ broker }}
-\subsubsection*{Recap by pre/post 2025 and type}
+\section*{\VAR{ broker }}
+
+\subsection*{Transfer-out breakdown}
+\textbf{Total transferred out: \GBP\VAR{ "{:,}".format(round_decimal(report.transferred_out_total(broker), 2))}}
+\begin{itemize}
+
+\item \textbf{Remitted to the UK: \GBP\VAR{ "{:,}".format(round_decimal(report.remitted_total(broker), 2))}}
+\begin{itemize}
+  \item Income remitted: \GBP\VAR{ "{:,}".format(round_decimal(report.remitted_income(broker), 2))}
+  \begin{itemize}
+    \item With UK income tax implication: \GBP\VAR{ "{:,}".format(round_decimal(report.remitted_income_tax_implication(broker), 2))}
+    \begin{itemize}
+      \item Without foreign tax relief: \GBP\VAR{ "{:,}".format(round_decimal(report.remitted_income_tax_implication_no_relief(broker), 2))}
+      \VAR{ category_breakdown(report.breakdown_by_category(broker, destination=Destination.UK, nature=RemittedIncomeType.INCOME, uk_implication=RemittedIncomeType.INCOME, has_foreign_tax=False)) }
+      \item With foreign tax relief: \GBP\VAR{ "{:,}".format(round_decimal(report.remitted_income_tax_implication_with_relief(broker)[0], 2))} -- foreign tax paid: \GBP\VAR{ "{:,}".format(round_decimal(report.remitted_income_tax_implication_with_relief(broker)[1], 2))}
+      \VAR{ category_breakdown_with_tax(report.breakdown_by_category_with_tax(broker, destination=Destination.UK, nature=RemittedIncomeType.INCOME, uk_implication=RemittedIncomeType.INCOME, has_foreign_tax=True)) }
+    \end{itemize}
+    \item Without UK tax implication: \GBP\VAR{ "{:,}".format(round_decimal(report.remitted_income_no_tax_implication(broker), 2))}
+    \VAR{ category_breakdown(report.breakdown_by_category(broker, destination=Destination.UK, nature=RemittedIncomeType.INCOME, uk_implication=None)) }
+  \end{itemize}
+  \item Capital Gains remitted: \GBP\VAR{ "{:,}".format(round_decimal(report.remitted_gains(broker), 2))}
+  \begin{itemize}
+    \item With UK capital gains tax implication: \GBP\VAR{ "{:,}".format(round_decimal(report.remitted_gains_tax_implication(broker), 2))}
+    \begin{itemize}
+      \item Without foreign tax relief: \GBP\VAR{ "{:,}".format(round_decimal(report.remitted_gains_tax_implication_no_relief(broker), 2))}
+      \VAR{ category_breakdown(report.breakdown_by_category(broker, destination=Destination.UK, nature=RemittedIncomeType.CAPITAL_GAIN, uk_implication=RemittedIncomeType.CAPITAL_GAIN, has_foreign_tax=False)) }
+      \item With foreign tax relief: \GBP\VAR{ "{:,}".format(round_decimal(report.remitted_gains_tax_implication_with_relief(broker)[0], 2))} -- foreign tax paid: \GBP\VAR{ "{:,}".format(round_decimal(report.remitted_gains_tax_implication_with_relief(broker)[1], 2))}
+      \VAR{ category_breakdown_with_tax(report.breakdown_by_category_with_tax(broker, destination=Destination.UK, nature=RemittedIncomeType.CAPITAL_GAIN, uk_implication=RemittedIncomeType.CAPITAL_GAIN, has_foreign_tax=True)) }
+    \end{itemize}
+    \item Without UK tax implication: \GBP\VAR{ "{:,}".format(round_decimal(report.remitted_gains_no_tax_implication(broker), 2))}
+    \VAR{ category_breakdown(report.breakdown_by_category(broker, destination=Destination.UK, nature=RemittedIncomeType.CAPITAL_GAIN, uk_implication=None)) }
+  \end{itemize}
+  \item From pre-2025 buckets: \GBP\VAR{ "{:,}".format(round_decimal(report.remitted_pre_2025(broker), 2))}
+  \VAR{ category_breakdown(report.breakdown_by_category(broker, destination=Destination.UK, pre_2025=True)) }
+  \item From 2025 and later buckets: \GBP\VAR{ "{:,}".format(round_decimal(report.remitted_post_2025(broker), 2))}
+  \VAR{ category_breakdown(report.breakdown_by_category(broker, destination=Destination.UK, pre_2025=False)) }
+  \BLOCK{ set remitted_by_cat = report.remitted_by_category(broker) }
+  \BLOCK{ if remitted_by_cat }
+  \item By category:
+  \VAR{ category_breakdown(remitted_by_cat) }
+  \BLOCK{ endif }
+\end{itemize}
+
+\item \textbf{Transferred overseas: \GBP\VAR{ "{:,}".format(round_decimal(report.transferred_overseas_total(broker), 2))}}
+\begin{itemize}
+  \item From pre-2025 buckets: \GBP\VAR{ "{:,}".format(round_decimal(report.transferred_overseas_pre_2025(broker), 2))}
+  \VAR{ category_breakdown(report.breakdown_by_category(broker, destination=Destination.OVERSEAS, pre_2025=True)) }
+  \item From 2025 and later buckets: \GBP\VAR{ "{:,}".format(round_decimal(report.transferred_overseas_post_2025(broker), 2))}
+  \VAR{ category_breakdown(report.breakdown_by_category(broker, destination=Destination.OVERSEAS, pre_2025=False)) }
+  \BLOCK{ set overseas_by_cat = report.transferred_overseas_by_category(broker) }
+  \BLOCK{ if overseas_by_cat }
+  \item By category:
+  \VAR{ category_breakdown(overseas_by_cat) }
+  \BLOCK{ endif }
+\end{itemize}
+
+\end{itemize}
+\vspace{0.5cm}
+
+\subsection*{Recap by pre/post 2025 and type}
 \VAR{ render_mixed_fund_table(pre_post_columns, report.mixed_funds_recap_log[broker], false, true) }
-\subsubsection*{Recap by tax year and type}
+\subsection*{Recap by tax year and type}
 \VAR{ render_mixed_fund_table(columns, report.mixed_funds_recap_log[broker], false, false) }
-\subsubsection*{Recap by type}
+\subsection*{Recap by type}
 \VAR{ render_mixed_fund_table(type_columns, report.mixed_funds_recap_log[broker], true, false) }
-\subsubsection*{By tax year and type}
+\subsection*{Mixed fund individual events}
 \VAR{ render_mixed_fund_table(columns, entries, false, false) }
-\subsubsection*{Aggregated by type}
-\VAR{ render_mixed_fund_table(type_columns, entries, true, false) }
 \clearpage
 \BLOCK{ endif }
 \BLOCK{ endfor }

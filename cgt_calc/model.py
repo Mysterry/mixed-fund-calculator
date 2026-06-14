@@ -853,9 +853,18 @@ class CapitalGainsReport:
 
     def _iter_transfer_out(
         self,
+        broker: str | None = None,
     ) -> Generator[tuple[Destination, int, MixedFundMoneyCategory, Decimal, Decimal, RemittedIncomeType | None]]:
-        """Yield (destination, tax_year, category, amount, foreign_tax, uk_implication) for every transfer-out movement."""
-        for mixed_fund_log in self.mixed_funds_log.values():
+        """Yield (destination, tax_year, category, amount, foreign_tax, uk_implication) for every transfer-out movement.
+
+        If broker is given, only that mixed fund's log is considered; otherwise all are.
+        """
+        logs = (
+            [self.mixed_funds_log[broker]]
+            if broker is not None
+            else self.mixed_funds_log.values()
+        )
+        for mixed_fund_log in logs:
             for entry in mixed_fund_log:
                 if entry.destination is None:
                     continue
@@ -871,6 +880,7 @@ class CapitalGainsReport:
 
     def _sum_transfer_out(
         self,
+        broker: str | None = None,
         destination: Destination | None = None,
         uk_implication=_UNSET,
         has_foreign_tax: bool | None = None,
@@ -886,7 +896,7 @@ class CapitalGainsReport:
         Returned total is negative (withdrawals); callers negate for display.
         """
         total = Decimal(0)
-        for dest, tax_year, cat, amount, foreign_tax, impl in self._iter_transfer_out():
+        for dest, tax_year, cat, amount, foreign_tax, impl in self._iter_transfer_out(broker):
             if destination is not None and dest != destination:
                 continue
             if uk_implication is not _UNSET and impl != uk_implication:
@@ -904,6 +914,7 @@ class CapitalGainsReport:
 
     def _sum_transfer_out_with_tax(
         self,
+        broker: str | None = None,
         destination: Destination | None = None,
         uk_implication=_UNSET,
         has_foreign_tax: bool | None = None,
@@ -914,7 +925,7 @@ class CapitalGainsReport:
         """Like _sum_transfer_out but also accumulates foreign tax. Returns (amount, foreign_tax), both negative."""
         total = Decimal(0)
         tax_total = Decimal(0)
-        for dest, tax_year, cat, amount, foreign_tax, impl in self._iter_transfer_out():
+        for dest, tax_year, cat, amount, foreign_tax, impl in self._iter_transfer_out(broker):
             if destination is not None and dest != destination:
                 continue
             if uk_implication is not _UNSET and impl != uk_implication:
@@ -931,46 +942,48 @@ class CapitalGainsReport:
             tax_total += foreign_tax
         return total, tax_total
 
-    def transferred_out_total(self) -> Decimal:
+    def transferred_out_total(self, broker: str | None = None) -> Decimal:
         """Total of all transfer-out movements (UK remittances + overseas)."""
-        return -self._sum_transfer_out()
+        return -self._sum_transfer_out(broker)
 
-    def remitted_total(self) -> Decimal:
+    def remitted_total(self, broker: str | None = None) -> Decimal:
         """Total remitted to the UK."""
-        return -self._sum_transfer_out(destination=Destination.UK)
+        return -self._sum_transfer_out(broker, destination=Destination.UK)
 
-    def transferred_overseas_total(self) -> Decimal:
+    def transferred_overseas_total(self, broker: str | None = None) -> Decimal:
         """Total transferred overseas."""
-        return -self._sum_transfer_out(destination=Destination.OVERSEAS)
+        return -self._sum_transfer_out(broker, destination=Destination.OVERSEAS)
 
-    def remitted_income(self) -> Decimal:
+    def remitted_income(self, broker: str | None = None) -> Decimal:
         """Total income-type money remitted to the UK, regardless of UK tax implication."""
-        return -self._sum_transfer_out(destination=Destination.UK, nature=RemittedIncomeType.INCOME)
+        return -self._sum_transfer_out(broker, destination=Destination.UK, nature=RemittedIncomeType.INCOME)
 
-    def remitted_income_no_tax_implication(self) -> Decimal:
+    def remitted_income_no_tax_implication(self, broker: str | None = None) -> Decimal:
         """Remitted income-type money that carries no UK tax implication."""
         return -self._sum_transfer_out(
-            destination=Destination.UK, nature=RemittedIncomeType.INCOME, uk_implication=None
+            broker, destination=Destination.UK, nature=RemittedIncomeType.INCOME, uk_implication=None
         )
 
-    def remitted_income_tax_implication(self) -> Decimal:
+    def remitted_income_tax_implication(self, broker: str | None = None) -> Decimal:
         """Remitted income-type money that creates a UK income tax implication."""
         return -self._sum_transfer_out(
-            destination=Destination.UK, nature=RemittedIncomeType.INCOME, uk_implication=RemittedIncomeType.INCOME
+            broker, destination=Destination.UK, nature=RemittedIncomeType.INCOME, uk_implication=RemittedIncomeType.INCOME
         )
 
-    def remitted_income_tax_implication_no_relief(self) -> Decimal:
+    def remitted_income_tax_implication_no_relief(self, broker: str | None = None) -> Decimal:
         """Remitted income with a UK tax implication and no associated foreign tax credit."""
         return -self._sum_transfer_out(
+            broker,
             destination=Destination.UK,
             nature=RemittedIncomeType.INCOME,
             uk_implication=RemittedIncomeType.INCOME,
             has_foreign_tax=False,
         )
 
-    def remitted_income_tax_implication_with_relief(self) -> tuple[Decimal, Decimal]:
+    def remitted_income_tax_implication_with_relief(self, broker: str | None = None) -> tuple[Decimal, Decimal]:
         """Remitted income with a UK tax implication that carries a foreign tax credit. Returns (amount, foreign_tax_paid)."""
         total, tax = self._sum_transfer_out_with_tax(
+            broker,
             destination=Destination.UK,
             nature=RemittedIncomeType.INCOME,
             uk_implication=RemittedIncomeType.INCOME,
@@ -978,36 +991,39 @@ class CapitalGainsReport:
         )
         return -total, -tax
 
-    def remitted_gains(self) -> Decimal:
+    def remitted_gains(self, broker: str | None = None) -> Decimal:
         """Total capital-gain-type money remitted to the UK, regardless of UK tax implication."""
-        return -self._sum_transfer_out(destination=Destination.UK, nature=RemittedIncomeType.CAPITAL_GAIN)
+        return -self._sum_transfer_out(broker, destination=Destination.UK, nature=RemittedIncomeType.CAPITAL_GAIN)
 
-    def remitted_gains_no_tax_implication(self) -> Decimal:
+    def remitted_gains_no_tax_implication(self, broker: str | None = None) -> Decimal:
         """Remitted gain-type money that carries no UK tax implication."""
         return -self._sum_transfer_out(
-            destination=Destination.UK, nature=RemittedIncomeType.CAPITAL_GAIN, uk_implication=None
+            broker, destination=Destination.UK, nature=RemittedIncomeType.CAPITAL_GAIN, uk_implication=None
         )
 
-    def remitted_gains_tax_implication(self) -> Decimal:
+    def remitted_gains_tax_implication(self, broker: str | None = None) -> Decimal:
         """Remitted gain-type money that creates a UK capital gains tax implication."""
         return -self._sum_transfer_out(
+            broker,
             destination=Destination.UK,
             nature=RemittedIncomeType.CAPITAL_GAIN,
             uk_implication=RemittedIncomeType.CAPITAL_GAIN,
         )
 
-    def remitted_gains_tax_implication_no_relief(self) -> Decimal:
+    def remitted_gains_tax_implication_no_relief(self, broker: str | None = None) -> Decimal:
         """Remitted gains with a UK tax implication and no associated foreign tax credit."""
         return -self._sum_transfer_out(
+            broker,
             destination=Destination.UK,
             nature=RemittedIncomeType.CAPITAL_GAIN,
             uk_implication=RemittedIncomeType.CAPITAL_GAIN,
             has_foreign_tax=False,
         )
 
-    def remitted_gains_tax_implication_with_relief(self) -> tuple[Decimal, Decimal]:
+    def remitted_gains_tax_implication_with_relief(self, broker: str | None = None) -> tuple[Decimal, Decimal]:
         """Remitted gains with a UK tax implication that carry a foreign tax credit. Returns (amount, foreign_tax_paid)."""
         total, tax = self._sum_transfer_out_with_tax(
+            broker,
             destination=Destination.UK,
             nature=RemittedIncomeType.CAPITAL_GAIN,
             uk_implication=RemittedIncomeType.CAPITAL_GAIN,
@@ -1015,39 +1031,80 @@ class CapitalGainsReport:
         )
         return -total, -tax
 
-    def remitted_pre_2025(self) -> Decimal:
+    def remitted_pre_2025(self, broker: str | None = None) -> Decimal:
         """Total remitted to the UK drawn from pre-2025 tax year buckets."""
-        return -self._sum_transfer_out(destination=Destination.UK, pre_2025=True)
+        return -self._sum_transfer_out(broker, destination=Destination.UK, pre_2025=True)
 
-    def remitted_post_2025(self) -> Decimal:
-        """Total remitted to the UK drawn from 2025+ tax year buckets."""
-        return -self._sum_transfer_out(destination=Destination.UK, pre_2025=False)
+    def remitted_post_2025(self, broker: str | None = None) -> Decimal:
+        """Total remitted to the UK drawn from 2025-and-later tax year buckets."""
+        return -self._sum_transfer_out(broker, destination=Destination.UK, pre_2025=False)
 
-    def transferred_overseas_pre_2025(self) -> Decimal:
+    def transferred_overseas_pre_2025(self, broker: str | None = None) -> Decimal:
         """Total transferred overseas drawn from pre-2025 tax year buckets."""
-        return -self._sum_transfer_out(destination=Destination.OVERSEAS, pre_2025=True)
+        return -self._sum_transfer_out(broker, destination=Destination.OVERSEAS, pre_2025=True)
 
-    def transferred_overseas_post_2025(self) -> Decimal:
-        """Total transferred overseas drawn from 2025+ tax year buckets."""
-        return -self._sum_transfer_out(destination=Destination.OVERSEAS, pre_2025=False)
+    def transferred_overseas_post_2025(self, broker: str | None = None) -> Decimal:
+        """Total transferred overseas drawn from 2025-and-later tax year buckets."""
+        return -self._sum_transfer_out(broker, destination=Destination.OVERSEAS, pre_2025=False)
 
-    def remitted_by_category(self) -> dict[MixedFundMoneyCategory, Decimal]:
+    def breakdown_by_category_with_tax(
+        self,
+        broker: str | None = None,
+        destination: Destination | None = None,
+        uk_implication=_UNSET,
+        has_foreign_tax: bool | None = None,
+        pre_2025: bool | None = None,
+        nature: RemittedIncomeType | None = None,
+    ) -> dict[MixedFundMoneyCategory, tuple[Decimal, Decimal]]:
+        """Per-category (amount, foreign_tax) breakdown of transfer-out movements matching the given filters.
+
+        Both values in the returned tuples are positive. Categories with no matching movement
+        (amount and foreign_tax both zero) are omitted.
+        """
+        result: dict[MixedFundMoneyCategory, tuple[Decimal, Decimal]] = {}
+        for cat in MixedFundMoneyCategory:
+            amount, tax = self._sum_transfer_out_with_tax(
+                broker,
+                destination=destination,
+                uk_implication=uk_implication,
+                has_foreign_tax=has_foreign_tax,
+                pre_2025=pre_2025,
+                category=cat,
+                nature=nature,
+            )
+            if amount or tax:
+                result[cat] = (-amount, -tax)
+        return result
+
+    def breakdown_by_category(
+        self,
+        broker: str | None = None,
+        destination: Destination | None = None,
+        uk_implication=_UNSET,
+        has_foreign_tax: bool | None = None,
+        pre_2025: bool | None = None,
+        nature: RemittedIncomeType | None = None,
+    ) -> dict[MixedFundMoneyCategory, Decimal]:
+        """Per-category breakdown of transfer-out amounts matching the given filters. See breakdown_by_category_with_tax."""
+        return {
+            cat: amount
+            for cat, (amount, _tax) in self.breakdown_by_category_with_tax(
+                broker,
+                destination=destination,
+                uk_implication=uk_implication,
+                has_foreign_tax=has_foreign_tax,
+                pre_2025=pre_2025,
+                nature=nature,
+            ).items()
+        }
+
+    def remitted_by_category(self, broker: str | None = None) -> dict[MixedFundMoneyCategory, Decimal]:
         """Total remitted to the UK, broken down by category."""
-        result: dict[MixedFundMoneyCategory, Decimal] = {}
-        for cat in MixedFundMoneyCategory:
-            total = -self._sum_transfer_out(destination=Destination.UK, category=cat)
-            if total:
-                result[cat] = total
-        return result
+        return self.breakdown_by_category(broker, destination=Destination.UK)
 
-    def transferred_overseas_by_category(self) -> dict[MixedFundMoneyCategory, Decimal]:
+    def transferred_overseas_by_category(self, broker: str | None = None) -> dict[MixedFundMoneyCategory, Decimal]:
         """Total transferred overseas, broken down by category."""
-        result: dict[MixedFundMoneyCategory, Decimal] = {}
-        for cat in MixedFundMoneyCategory:
-            total = -self._sum_transfer_out(destination=Destination.OVERSEAS, category=cat)
-            if total:
-                result[cat] = total
-        return result
+        return self.breakdown_by_category(broker, destination=Destination.OVERSEAS)
 
     def __repr__(self) -> str:
         """Return string representation."""
@@ -1121,17 +1178,19 @@ class CapitalGainsReport:
         out += f"Total UK interest proceeds: £{self.total_uk_interest}\n"
         out += f"Total foreign interest proceeds: £{self.total_foreign_interest}\n"
 
-        out += f"REMITTANCE RESULTS ACROSS MIXED FUNDS: \n"
-        out += f"Total remitted income: £{round_decimal(self.remitted_income(), 2)}\n"
-        out += f"Total remitted income without UK tax implication: £{round_decimal(self.remitted_income_no_tax_implication(), 2)}\n"
-        out += f"Total remitted income with UK tax implication: £{round_decimal(self.remitted_income_tax_implication(), 2)}\n"
-        out += f"  - without tax relief: £{round_decimal(self.remitted_income_tax_implication_no_relief(), 2)}\n"
-        out += f"  - with tax relief: £{round_decimal(self.remitted_income_tax_implication_with_relief()[0], 2)} -- foreign tax paid: £{round_decimal(self.remitted_income_tax_implication_with_relief()[1], 2)}\n"
-        out += f"Total remitted gains: £{round_decimal(self.remitted_gains(), 2)}\n"
-        out += f"Total remitted gains without UK tax implication: £{round_decimal(self.remitted_gains_no_tax_implication(), 2)}\n"
-        out += f"Total remitted gains with UK tax implication: £{round_decimal(self.remitted_gains_tax_implication(), 2)}\n"
-        out += f"  - without tax relief: £{round_decimal(self.remitted_gains_tax_implication_no_relief(), 2)}\n"
-        out += f"  - with tax relief: £{round_decimal(self.remitted_gains_tax_implication_with_relief()[0], 2)} -- foreign tax paid: £{round_decimal(self.remitted_gains_tax_implication_with_relief()[1], 2)}\n"
+        out += "REMITTANCE RESULTS PER MIXED FUND:\n"
+        for broker in self.mixed_funds_log:
+            out += f"{broker}:\n"
+            out += f"  Total remitted income: £{round_decimal(self.remitted_income(broker), 2)}\n"
+            out += f"  Total remitted income without UK tax implication: £{round_decimal(self.remitted_income_no_tax_implication(broker), 2)}\n"
+            out += f"  Total remitted income with UK tax implication: £{round_decimal(self.remitted_income_tax_implication(broker), 2)}\n"
+            out += f"    - without tax relief: £{round_decimal(self.remitted_income_tax_implication_no_relief(broker), 2)}\n"
+            out += f"    - with tax relief: £{round_decimal(self.remitted_income_tax_implication_with_relief(broker)[0], 2)} -- foreign tax paid: £{round_decimal(self.remitted_income_tax_implication_with_relief(broker)[1], 2)}\n"
+            out += f"  Total remitted gains: £{round_decimal(self.remitted_gains(broker), 2)}\n"
+            out += f"  Total remitted gains without UK tax implication: £{round_decimal(self.remitted_gains_no_tax_implication(broker), 2)}\n"
+            out += f"  Total remitted gains with UK tax implication: £{round_decimal(self.remitted_gains_tax_implication(broker), 2)}\n"
+            out += f"    - without tax relief: £{round_decimal(self.remitted_gains_tax_implication_no_relief(broker), 2)}\n"
+            out += f"    - with tax relief: £{round_decimal(self.remitted_gains_tax_implication_with_relief(broker)[0], 2)} -- foreign tax paid: £{round_decimal(self.remitted_gains_tax_implication_with_relief(broker)[1], 2)}\n"
 
         return out
 
