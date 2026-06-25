@@ -713,7 +713,9 @@ def _filter_cancelled_buy_transactions(
 
 
 def read_schwab_transactions(
-    transactions_file: Path, schwab_award_transactions_file: Path | None, schwab_transfers_file: Path | None
+    transactions_file: Path,
+    schwab_award_transactions_file: Path | None,
+    schwab_transfers_file: Path | None = None,
 ) -> list[BrokerTransaction]:
     """Read Schwab transactions from file."""
     awards_infos = _read_schwab_awards(schwab_award_transactions_file)

@@ -1,7 +1,7 @@
-Parsing tests/schwab/data/schwab_transactions.csv...
-Parsing tests/trading212/data/2020/from_2020-09-11_to_2021-04-02.csv...
-Parsing tests/morgan_stanley/data/Releases Report.csv...
-Parsing tests/morgan_stanley/data/Withdrawals Report.csv...
+Parsing tests\schwab\data\schwab_transactions.csv...
+Parsing tests\trading212\data\2020\from_2020-09-11_to_2021-04-02.csv...
+Parsing tests\morgan_stanley\data\Releases Report.csv...
+Parsing tests\morgan_stanley\data\Withdrawals Report.csv...
 Found 27 broker transactions
 First pass completed
 Final portfolio:
@@ -21,15 +21,16 @@ Disposal proceeds: £43836.90
 
 Second pass completed
 Portfolio at the end of 2020/2021 tax year:
-  VUAG: 30.50, £645.19
-  VNRG: 1.00, £8.98
-  NVDA: 1.00, £401.01
-  GOOG: 172.00, £12516.55
+  VUAG: quantity: 30.50, cost: £645.19
+  VNRG: quantity: 1.00, cost: £8.98
+  NVDA: quantity: 1.00, cost: £401.01
+  GOOG: quantity: 172.00, cost: £12516.55
 For tax year 2020/2021:
 Excess Reported Income:
   VUAG: £22.26 (included as dividend)
   VNRG: £0.91 (included as dividend)
 Number of disposals: 4
+Disposed securities: ['GME', 'GOOG', 'VUAG']
 Disposal proceeds: £43836.90
 Allowable costs: £18666.33
 Capital gain: £25170.57
@@ -41,6 +42,50 @@ Total amount of dividends tax yearly allowance: £2000.00
 Total taxable dividends proceeds: £0.00
 Total UK interest proceeds: £0.00
 Total foreign interest proceeds: £1.03
+REMITTANCE RESULTS PER MIXED FUND:
+Charles Schwab:
+  Total remitted income: £0.00
+  Total remitted income without UK tax implication: £0.00
+  Total remitted income with UK tax implication: £0.00
+    - without tax relief: £0.00
+    - with tax relief: £0.00 -- foreign tax paid: £0.00
+  Total remitted gains: £0.00
+  Total remitted gains without UK tax implication: £0.00
+  Total remitted gains with UK tax implication: £0.00
+    - without tax relief: £0.00
+    - with tax relief: £0.00 -- foreign tax paid: £0.00
+  Total remitted from TRF Capital: £0.00
+  Total transferred overseas from TRF Capital: £0.00
+  TRF Capital balance at end of year: £0.00
+Trading212:
+  Total remitted income: £0.00
+  Total remitted income without UK tax implication: £0.00
+  Total remitted income with UK tax implication: £0.00
+    - without tax relief: £0.00
+    - with tax relief: £0.00 -- foreign tax paid: £0.00
+  Total remitted gains: £0.00
+  Total remitted gains without UK tax implication: £0.00
+  Total remitted gains with UK tax implication: £0.00
+    - without tax relief: £0.00
+    - with tax relief: £0.00 -- foreign tax paid: £0.00
+  Total remitted from TRF Capital: £0.00
+  Total transferred overseas from TRF Capital: £0.00
+  TRF Capital balance at end of year: £0.00
+Morgan Stanley:
+  Total remitted income: £3074.81
+  Total remitted income without UK tax implication: £3074.81
+  Total remitted income with UK tax implication: £0.00
+    - without tax relief: £0.00
+    - with tax relief: £0.00 -- foreign tax paid: £0.00
+  Total remitted gains: £0.00
+  Total remitted gains without UK tax implication: £0.00
+  Total remitted gains with UK tax implication: £0.00
+    - without tax relief: £0.00
+    - with tax relief: £0.00 -- foreign tax paid: £0.00
+  Total remitted from TRF Capital: £0.00
+  Total transferred overseas from TRF Capital: £0.00
+  TRF Capital balance at end of year: £0.00
 
+Generating PDF report...
 Generating PDF report...
 All done!

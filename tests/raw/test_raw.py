@@ -1,4 +1,4 @@
-"""Test raw format support."""
+﻿"""Test raw format support."""
 
 from __future__ import annotations
 
@@ -51,7 +51,7 @@ def test_run_with_raw_files_no_balance_check() -> None:
         "Unexpected stderr message"
     )
     expected_file = Path("tests") / "raw" / "data" / "expected_output.txt"
-    expected = expected_file.read_text()
+    expected = expected_file.read_text(encoding="utf-8")
     cmd_str = " ".join([param if param else "''" for param in cmd])
     assert result.stdout == expected, (
         "Run with example files generated unexpected outputs, "
@@ -81,7 +81,7 @@ def test_run_with_raw_files() -> None:
         "Unexpected stderr message"
     )
     expected_file = Path("tests") / "raw" / "data" / "expected_output_2.txt"
-    expected = expected_file.read_text()
+    expected = expected_file.read_text(encoding="utf-8")
     cmd_str = " ".join([param if param else "''" for param in cmd])
     assert result.stdout == expected, (
         "Run with example files generated unexpected outputs, "
@@ -232,3 +232,4 @@ def test_parse_decimal_missing_value_raises() -> None:
 
     with pytest.raises(ValueError, match="Missing value in column 'quantity'"):
         _parse_decimal(row, RawColumn.QUANTITY, allow_empty=False)
+

@@ -23,11 +23,13 @@
     6: "f",
     7: "g",
     8: "h",
-    9: "i"
+    9: "i",
+    10: "j"
 } }
 \BLOCK{ set pre_post_label = {
-    True: "2025 and later",
-    False: "pre-2025"
+    Period.POST_2025: "2025 and later",
+    Period.PRE_2025: "pre-2025",
+    Period.TRF_CAPITAL: "TRF Capital"
 } }
 % ---------- CALCULATE MAX WIDTHS ----------
 \BLOCK{ set ns_max = namespace(max_columns=0, max_table_width=0) }
@@ -151,7 +153,8 @@ Mixed funds calculations for
 \BLOCK{ for tax_year, category in columns }
   \BLOCK{ if tax_year != ns.current_year }
     \BLOCK{ if ns.current_year is not none }
-      \BLOCK{ set _ = ns.output.append('\\multicolumn{' ~ ns.year_span ~ '}{|c|}{\\textbf{' ~ ns.current_year ~ '}}') }
+      \BLOCK{ set year_label = "TRF Capital" if ns.current_year == TRF_CAPITAL_TAX_YEAR else ns.current_year }
+      \BLOCK{ set _ = ns.output.append('\\multicolumn{' ~ ns.year_span ~ '}{|c|}{\\textbf{' ~ year_label ~ '}}') }
     \BLOCK{ endif }
     \BLOCK{ set ns.current_year = tax_year }
     \BLOCK{ set ns.year_span = 1 }
@@ -159,7 +162,8 @@ Mixed funds calculations for
     \BLOCK{ set ns.year_span = ns.year_span + 1 }
   \BLOCK{ endif }
   \BLOCK{ if loop.last }
-    \BLOCK{ set _ = ns.output.append('\\multicolumn{' ~ ns.year_span ~ '}{|c|}{\\textbf{' ~ ns.current_year ~ '}}') }
+    \BLOCK{ set year_label = "TRF Capital" if ns.current_year == TRF_CAPITAL_TAX_YEAR else ns.current_year }
+    \BLOCK{ set _ = ns.output.append('\\multicolumn{' ~ ns.year_span ~ '}{|c|}{\\textbf{' ~ year_label ~ '}}') }
   \BLOCK{ endif }
 \BLOCK{ endfor }
 \VAR{ ns.output | join(' & ') } \\
@@ -176,7 +180,7 @@ Mixed funds calculations for
 \BLOCK{ if entry.movements }
 \begin{itemize}
   \BLOCK{ for y, c, a, impl, ft in entry.movements_display() }
-    \item \VAR{ y } -- \VAR{ number_to_letter[c.value] } : \VAR{ c.name.replace("_", " ") }:
+    \item \VAR{ "TRF" if y == TRF_CAPITAL_TAX_YEAR else y } -- \VAR{ number_to_letter[c.value] } : \VAR{ c.name.replace("_", " ") }:
           \GBP\VAR{ "{:,}".format(round_decimal(a, 2)) }\BLOCK{ if impl is not none } $\Rightarrow$ UK \VAR{ impl.name.replace("_", " ").lower() }\BLOCK{ endif }\BLOCK{ if ft } (foreign tax \GBP\VAR{ "{:,}".format(round_decimal(-ft, 2)) })\BLOCK{ endif }
   \BLOCK{ endfor }
 \end{itemize}
@@ -194,7 +198,7 @@ Mixed funds calculations for
 \BLOCK{ elif aggregate_by_pre_post_2025 }
   \BLOCK{ for tax_year, category, amount in entry.composition }
     \BLOCK{ if amount }
-      \BLOCK{ set key = (tax_year >= 2025, category) }
+      \BLOCK{ set key = (get_period(tax_year), category) }
       \BLOCK{ set _ = comp.update({key: comp.get(key, Decimal(0)) + amount}) }
     \BLOCK{ endif }
   \BLOCK{ endfor }
@@ -275,6 +279,7 @@ Mixed funds calculations for
   \VAR{ category_breakdown(report.breakdown_by_category(broker, destination=Destination.UK, pre_2025=True)) }
   \item From 2025 and later buckets: \GBP\VAR{ "{:,}".format(round_decimal(report.remitted_post_2025(broker), 2))}
   \VAR{ category_breakdown(report.breakdown_by_category(broker, destination=Destination.UK, pre_2025=False)) }
+  \item From TRF Capital: \GBP\VAR{ "{:,}".format(round_decimal(report.remitted_from_trf_capital(broker), 2))}
   \BLOCK{ set remitted_by_cat = report.remitted_by_category(broker) }
   \BLOCK{ if remitted_by_cat }
   \item By category:
@@ -288,6 +293,7 @@ Mixed funds calculations for
   \VAR{ category_breakdown(report.breakdown_by_category(broker, destination=Destination.OVERSEAS, pre_2025=True)) }
   \item From 2025 and later buckets: \GBP\VAR{ "{:,}".format(round_decimal(report.transferred_overseas_post_2025(broker), 2))}
   \VAR{ category_breakdown(report.breakdown_by_category(broker, destination=Destination.OVERSEAS, pre_2025=False)) }
+  \item From TRF Capital: \GBP\VAR{ "{:,}".format(round_decimal(report.transferred_overseas_from_trf_capital(broker), 2))}
   \BLOCK{ set overseas_by_cat = report.transferred_overseas_by_category(broker) }
   \BLOCK{ if overseas_by_cat }
   \item By category:

@@ -1,5 +1,5 @@
-Parsing tests/sharesight/data/inputs/All Trades Report - Test.csv...
-Parsing tests/sharesight/data/inputs/Taxable Income Report - Test.csv...
+Parsing tests\sharesight\data\inputs\All Trades Report - Test.csv...
+Parsing tests\sharesight\data\inputs\Taxable Income Report - Test.csv...
 Found 16 broker transactions
 First pass completed
 Final portfolio:
@@ -16,11 +16,12 @@ Disposal proceeds: £12999.61
 
 Second pass completed
 Portfolio at the end of 2020/2021 tax year:
-  FX:ETH: 2.59, £5352.48
-  NASDAQ:FOO: 5.00, £968.97
-  FundUK:FUND1: 50.00, £13775.00
+  FX:ETH: quantity: 2.59, cost: £5352.48
+  NASDAQ:FOO: quantity: 5.00, cost: £968.97
+  FundUK:FUND1: quantity: 50.00, cost: £13775.00
 For tax year 2020/2021:
 Number of disposals: 4
+Disposed securities: ['FX:XBT', 'NASDAQ:BAZ', 'NASDAQ:FOO', 'NYSE:BAR']
 Disposal proceeds: £12999.61
 Allowable costs: £11017.97
 Capital gain: £2176.98
@@ -32,6 +33,22 @@ Total amount of dividends tax yearly allowance: £2000.00
 Total taxable dividends proceeds: £0.00
 Total UK interest proceeds: £0.00
 Total foreign interest proceeds: £0.00
+REMITTANCE RESULTS PER MIXED FUND:
+Sharesight:
+  Total remitted income: £0.00
+  Total remitted income without UK tax implication: £0.00
+  Total remitted income with UK tax implication: £0.00
+    - without tax relief: £0.00
+    - with tax relief: £0.00 -- foreign tax paid: £0.00
+  Total remitted gains: £0.00
+  Total remitted gains without UK tax implication: £0.00
+  Total remitted gains with UK tax implication: £0.00
+    - without tax relief: £0.00
+    - with tax relief: £0.00 -- foreign tax paid: £0.00
+  Total remitted from TRF Capital: £0.00
+  Total transferred overseas from TRF Capital: £0.00
+  TRF Capital balance at end of year: £0.00
 
+Generating PDF report...
 Generating PDF report...
 All done!

@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from collections import defaultdict
+from collections import OrderedDict, defaultdict
 import datetime
 import decimal
 from decimal import Decimal
@@ -12,6 +12,7 @@ import sys
 from typing import TYPE_CHECKING
 
 from cgt_calc.parsers.remittance import OWREvent, TaxFilings, TaxFilingBasis, Destination, Origin
+from .trf import TRFHandler
 from . import render_latex
 from .args_parser import create_parser
 from .const import (
@@ -63,7 +64,8 @@ from .model import (
     ProcessedMixedFundTransaction,
     MixedFundsReport,
     MixedFundMoneyCategory,
-    aggregate_dicts, MixedFundEntry, RemittedIncomeType
+    aggregate_dicts, MixedFundEntry, RemittedIncomeType,
+    TRF_CAPITAL_TAX_YEAR, TRF_RELEVANT_TAX_YEARS,
 )
 from .parsers import read_broker_transactions
 from .parsers.remittance import read_remittance_basis, read_owr
@@ -148,6 +150,38 @@ def _approx_equal_price_rounding(
     return accptable_amount
 
 
+def _compute_remitted_tax_implications(
+    movement: dict[int, dict[MixedFundMoneyCategory, Decimal]],
+    tax_filings: TaxFilings,
+) -> dict[tuple[int, MixedFundMoneyCategory], RemittedIncomeType]:
+    """UK tax implications of a remittance movement, per (tax_year, category)."""
+    result: dict[tuple[int, MixedFundMoneyCategory], RemittedIncomeType] = {}
+    for yr, cats in movement.items():
+        # TRF Capital has no remittance-basis UK tax implication — its charge
+        # is the flat TRF rate, handled separately.
+        if yr == TRF_CAPITAL_TAX_YEAR:
+            continue
+        if tax_filings.get(yr) == TaxFilingBasis.REMITTANCE:
+            for category, remittance in cats.items():
+                if remittance:
+                    if category in [
+                        MixedFundMoneyCategory.RELEVANT_FOREIGN_EARNINGS,
+                        MixedFundMoneyCategory.FOREIGN_SPECIFIC_EMPLOYMENT_INCOME,
+                        MixedFundMoneyCategory.RELEVANT_FOREIGN_INCOME,
+                        MixedFundMoneyCategory.OTHER_INCOME,
+                        MixedFundMoneyCategory.EMPLOYMENT_INCOME_SUBJECT_TO_A_FOREIGN_FAX,
+                        MixedFundMoneyCategory.RELEVANT_FOREIGN_INCOME_SUBJECT_TO_A_FOREIGN_FAX,
+                    ]:
+                        result[(yr, category)] = RemittedIncomeType.INCOME
+                    elif category in [
+                        MixedFundMoneyCategory.FOREIGN_CHARGEABLE_GAINS,
+                        MixedFundMoneyCategory.FOREIGN_CHARGEABLE_GAINS_SUBJECT_TO_A_FOREIGN_FAX,
+                    ]:
+                        result[(yr, category)] = RemittedIncomeType.CAPITAL_GAIN
+                    # EMPLOYMENT_INCOME: already UK-taxed, no further UK implication
+    return result
+
+
 class CapitalGainsCalculator:
     """Main calculator class."""
 
@@ -160,8 +194,9 @@ class CapitalGainsCalculator:
         spin_off_handler: SpinOffHandler,
         initial_prices: InitialPrices,
         interest_fund_tickers: list[str],
-        tax_filings: TaxFilings,
-        owr_events: list[OWREvent],
+        tax_filings: TaxFilings | None = None,
+        owr_events: list[OWREvent] | None = None,
+        trf_handler: TRFHandler | None = None,
         balance_check: bool = True,
         calc_unrealized_gains: bool = False,
     ):
@@ -179,8 +214,9 @@ class CapitalGainsCalculator:
         self.balance_check = balance_check
         self.calc_unrealized_gains = calc_unrealized_gains
         self.interest_fund_tickers = interest_fund_tickers
-        self.tax_filings = tax_filings
-        self.owr_events = owr_events
+        self.tax_filings = tax_filings if tax_filings is not None else TaxFilings(OrderedDict(), None)
+        self.owr_events = owr_events if owr_events is not None else []
+        self.trf_handler = trf_handler or TRFHandler(None, prompt=False)
         self.total_uk_interest = Decimal(0)
         self.total_foreign_interest = Decimal(0)
 
@@ -614,7 +650,7 @@ class CapitalGainsCalculator:
                 )
                 if self.date_in_tax_year(transaction.date):
                     dividends[(symbol, currency)] += amount
-            elif transaction.action is ActionType.NRA_TAX_ADJ and transaction.symbol:
+            elif transaction.action in [ActionType.DIVIDEND_TAX, ActionType.NRA_TAX_ADJ] and transaction.symbol:
                 amount = get_amount_or_fail(transaction)
                 symbol = get_symbol_or_fail(transaction)
                 currency = transaction.currency
@@ -725,23 +761,26 @@ class CapitalGainsCalculator:
 
             if transaction.action == ActionType.STOCK_ACTIVITY:
                 # Stock activity is matched to the OWR events tables to figure out the OWR rate
-                owr_event = transaction.find_close_event(
-                    [owr_event for owr_event in self.owr_events if (owr_event.broker == transaction.broker
-                                                                    and owr_event.symbol == transaction.symbol
-                                                                    and owr_event.quantity == transaction.pre_tax_quantity
-                                                                    )
-                    ],
-                    min_delta=6, max_delta=0)
+                if self.owr_events:
+                    owr_event = transaction.find_close_event(
+                        [owr_event for owr_event in self.owr_events if (owr_event.broker == transaction.broker
+                                                                        and owr_event.symbol == transaction.symbol
+                                                                        and owr_event.quantity == transaction.pre_tax_quantity
+                                                                        )
+                        ],
+                        min_delta=6, max_delta=0)
 
-                if not owr_event:
-                    raise InvalidTransactionError(transaction, message="Couldn't find a matching OWR event for this stock award activity")
+                    if not owr_event:
+                        raise InvalidTransactionError(transaction, message="Couldn't find a matching OWR event for this stock award activity")
 
-                owr_rate = (
-                    owr_event.overseas_working_days
-                    / owr_event.working_days
-                    * owr_event.vesting_days_in_three_years
-                    / owr_event.vesting_days
-                ) if owr_event.working_days != 0 else Decimal(0)
+                    owr_rate = (
+                        owr_event.overseas_working_days
+                        / owr_event.working_days
+                        * owr_event.vesting_days_in_three_years
+                        / owr_event.vesting_days
+                    ) if owr_event.working_days != 0 else Decimal(0)
+                else:
+                    owr_rate = Decimal(0)  # No OWR file: treat as 100% UK-taxed
 
                 processed_mixed_fund_transaction = ProcessedMixedFundTransaction(
                     broker=transaction.broker,
@@ -1424,6 +1463,11 @@ class CapitalGainsCalculator:
         all_sales_log: CalculationLog = defaultdict(dict)
 
         mixed_funds_log = dict()
+        # Per (broker, tax_year): whether TRF Capital is non-zero, i.e. annualized basis applies.
+        trf_active: defaultdict[str, dict[int, bool]] = defaultdict(dict)
+        # Per (broker, tax_year): accumulated transfer amounts deferred under annualized basis.
+        pending_uk_remittance: defaultdict[str, defaultdict[int, Decimal]] = defaultdict(lambda: defaultdict(Decimal))
+        pending_overseas_transfer: defaultdict[str, defaultdict[int, Decimal]] = defaultdict(lambda: defaultdict(Decimal))
 
         for broker in self.mixed_funds.keys():
             mixed_funds_log[broker] = []
@@ -1569,6 +1613,57 @@ class CapitalGainsCalculator:
                 mixed_fund = self.mixed_funds[broker]
                 composition = mixed_fund.mixed_fund_composition
 
+                # Apply TRF declarations at the start of each relevant tax year.
+                for y in TRF_RELEVANT_TAX_YEARS:
+                    if y > self.tax_year or date_index != get_tax_year_start(y):
+                        continue
+
+                    # Ensure the "beginning of year" snapshot is written first when
+                    # this is the report year (so the declaration entry follows it).
+                    if date_index >= tax_year_start_index and len(mixed_fund_log) == 0:
+                        mixed_fund_log.append(
+                            MixedFundEntry(
+                                message="Composition at the beginning of the tax year",
+                                movement={},
+                                tax_movement={},
+                                mixed_fund_composition=composition,
+                                remitted_tax_implications=None,
+                            )
+                        )
+
+                    existing = self.trf_handler.get_applicable_allocations(y, broker)
+                    if y == self.tax_year:
+                        allocations = self.trf_handler.declare_for_year(
+                            y,
+                            broker,
+                            composition.get_list_representation_buckets(),
+                            existing,
+                        )
+                    else:
+                        allocations = existing or {}
+
+                    if allocations:
+                        movement, tax_movement = composition.declare_trf(allocations)
+                        total = sum(allocations.values())
+                        message = (
+                            "TRF declaration for tax year %s/%s in %s designates £%s as TRF Capital"
+                        ) % (y, y + 1, broker, round_decimal(total, 2))
+                        LOGGER.debug(message)
+                        if date_index >= tax_year_start_index:
+                            mixed_fund_log.append(
+                                MixedFundEntry(
+                                    message=message,
+                                    movement=movement,
+                                    tax_movement=tax_movement,
+                                    mixed_fund_composition=composition,
+                                    remitted_tax_implications=None,
+                                )
+                            )
+
+                    trf_active[broker][y] = bool(
+                        composition.buckets[TRF_CAPITAL_TAX_YEAR][MixedFundMoneyCategory.TRF_CAPITAL]
+                    )
+
                 for transaction in [mixed_fund_transaction for mixed_fund_transaction
                                     in mixed_fund.processed_mixed_fund_transaction_log
                                     if mixed_fund_transaction.date == date_index]:
@@ -1687,76 +1782,63 @@ class CapitalGainsCalculator:
                                     )
                                 )
                     elif transaction.action == ActionType.TRANSFER:
-                        # Transfers have negative amount
                         withdrawal = -transaction.amount - transaction.fees
-                        if transaction.destination == Destination.OVERSEAS:
-                            # If this is a transfer out to overseas, then we take the money prorated on all buckets, as per RDRM35420
-                            movement, tax_movement = composition.withdraw_money_prorated(withdrawal)
-                            message = (
-                            "Transfer-out on %s in %s to overseas destination leads to £%s "
-                            "removed prorated on all buckets"
-                            ) % (
-                            date_index,
-                            broker,
-                            round_decimal(withdrawal, 2),
-                            )
-                            LOGGER.debug(message)
-                            if date_index >= tax_year_start_index:
-                                mixed_fund_log.append(
-                                    MixedFundEntry(
-                                        message=message,
-                                        movement=movement,
-                                        tax_movement=tax_movement,
-                                        mixed_fund_composition=composition,
-                                        destination=Destination.OVERSEAS,
+                        if withdrawal <= 0 and transaction.amount > 0:
+                            # Transfer-in: add deposit to composition as employment income.
+                            deposit = transaction.amount - transaction.fees
+                            composition.add_money(tax_year, MixedFundMoneyCategory.EMPLOYMENT_INCOME, deposit)
+                        elif withdrawal > 0:
+                            transfer_year = get_tax_year_index_from_date(date_index)
+
+                            if (
+                                transfer_year in TRF_RELEVANT_TAX_YEARS
+                                and trf_active[broker].get(transfer_year, False)
+                            ):
+                                # Annualized basis (RDRM75500): defer all transfers to year-end flush.
+                                if transaction.destination == Destination.OVERSEAS:
+                                    pending_overseas_transfer[broker][transfer_year] += withdrawal
+                                else:
+                                    pending_uk_remittance[broker][transfer_year] += withdrawal
+                            elif transaction.destination == Destination.OVERSEAS:
+                                # Transfer out to overseas: pro-rata across all buckets (RDRM35420).
+                                movement, tax_movement = composition.withdraw_money_prorated(withdrawal)
+                                message = (
+                                    "Transfer-out on %s in %s to overseas destination leads to £%s "
+                                    "removed prorated on all buckets"
+                                ) % (date_index, broker, round_decimal(withdrawal, 2))
+                                LOGGER.debug(message)
+                                if date_index >= tax_year_start_index:
+                                    mixed_fund_log.append(
+                                        MixedFundEntry(
+                                            message=message,
+                                            movement=movement,
+                                            tax_movement=tax_movement,
+                                            mixed_fund_composition=composition,
+                                            destination=Destination.OVERSEAS,
+                                        )
                                     )
+                            else:
+                                # Remittance to the UK: ordering rules apply (RDRM35240).
+                                movement, tax_movement = composition.withdraw_money_buckets_order(withdrawal)
+                                message = (
+                                    "Transfer-out on %s in %s to the UK: remittance leads to £%s "
+                                    "removed following the ordering rules"
+                                ) % (date_index, broker, round_decimal(withdrawal, 2))
+                                LOGGER.debug(message)
+                                remitted_tax_implications = _compute_remitted_tax_implications(
+                                    movement, self.tax_filings
                                 )
-                        else:
-                            # If this is a transfer out to the UK (=remittance), then the ordering rules apply as per RDRM35240
-                            movement, tax_movement = composition.withdraw_money_buckets_order(withdrawal)
-
-                            message = (
-                            "Transfer-out on %s in %s to the UK: remittance leads to £%s removed following the ordering rules"
-                            ) % (
-                            date_index,
-                            broker,
-                            round_decimal(withdrawal, 2),
-                            )
-                            LOGGER.debug(message)
-
-                            remitted_tax_implications = {}
-                            for tax_year in movement.keys():
-                                # There is a UK tax implication only when remitting money from a year taxed on the remittance basis
-                                if self.tax_filings.get(tax_year) == TaxFilingBasis.REMITTANCE:
-                                    for category, remittance in movement[tax_year].items():
-                                        if remittance:
-                                            if category in [
-                                                MixedFundMoneyCategory.RELEVANT_FOREIGN_EARNINGS,
-                                                MixedFundMoneyCategory.FOREIGN_SPECIFIC_EMPLOYMENT_INCOME,
-                                                MixedFundMoneyCategory.RELEVANT_FOREIGN_INCOME,
-                                                MixedFundMoneyCategory.OTHER_INCOME,
-                                                MixedFundMoneyCategory.EMPLOYMENT_INCOME_SUBJECT_TO_A_FOREIGN_FAX,
-                                                MixedFundMoneyCategory.RELEVANT_FOREIGN_INCOME_SUBJECT_TO_A_FOREIGN_FAX,
-                                            ]:
-                                                remitted_tax_implications[(tax_year, category)] = RemittedIncomeType.INCOME
-                                            elif category in [
-                                                MixedFundMoneyCategory.FOREIGN_CHARGEABLE_GAINS,
-                                                MixedFundMoneyCategory.FOREIGN_CHARGEABLE_GAINS_SUBJECT_TO_A_FOREIGN_FAX,
-                                            ]:
-                                                remitted_tax_implications[(tax_year, category)] = RemittedIncomeType.CAPITAL_GAIN
-                                            # EMPLOYMENT_INCOME: already UK-taxed, no further UK implication
-
-                            if date_index >= tax_year_start_index:
-                                mixed_fund_log.append(
-                                    MixedFundEntry(
-                                        message=message,
-                                        movement=movement,
-                                        tax_movement=tax_movement,
-                                        mixed_fund_composition=composition,
-                                        remitted_tax_implications=remitted_tax_implications or None,
-                                        destination=Destination.UK,
+                                if date_index >= tax_year_start_index:
+                                    mixed_fund_log.append(
+                                        MixedFundEntry(
+                                            message=message,
+                                            movement=movement,
+                                            tax_movement=tax_movement,
+                                            mixed_fund_composition=composition,
+                                            remitted_tax_implications=remitted_tax_implications or None,
+                                            destination=Destination.UK,
+                                        )
                                     )
-                                )
                     elif transaction.action == ActionType.INTEREST:
                         if transaction.tax_at_source:
                             # Investment gains subject to a foreign tax go to a specific bucket
@@ -1810,7 +1892,9 @@ class CapitalGainsCalculator:
                                 )
 
                     elif transaction.action == ActionType.DIVIDEND:
-                        if transaction.tax_at_source:
+                        if transaction.amount <= 0:
+                            pass  # dividend reversal, skip mixed fund entry
+                        elif transaction.tax_at_source:
                             # Investment gains subject to a foreign tax go to a specific bucket
                             amount = transaction.amount - transaction.fees
                             tax_amount = -transaction.tax_at_source
@@ -1984,7 +2068,54 @@ class CapitalGainsCalculator:
                     else:
                         raise f"ERROR: a mixed fund transaction is of an unsupported type: {transaction.action}"
 
+                # Year-end flush: aggregate deferred transfers for TRF-annualized years.
+                for y in TRF_RELEVANT_TAX_YEARS:
+                    if y > self.tax_year or date_index != get_tax_year_end(y):
+                        continue
+                    if not trf_active[broker].get(y, False):
+                        continue
 
+                    uk_total = pending_uk_remittance[broker][y]
+                    if uk_total > 0:
+                        movement, tax_movement = composition.withdraw_money_buckets_order(uk_total)
+                        remitted_tax_implications = _compute_remitted_tax_implications(
+                            movement, self.tax_filings
+                        )
+                        message = (
+                            "Annualized UK remittance for tax year %s/%s in %s: "
+                            "aggregated £%s removed following the ordering rules (TRF Capital priority)"
+                        ) % (y, y + 1, broker, round_decimal(uk_total, 2))
+                        LOGGER.debug(message)
+                        if date_index >= tax_year_start_index:
+                            mixed_fund_log.append(
+                                MixedFundEntry(
+                                    message=message,
+                                    movement=movement,
+                                    tax_movement=tax_movement,
+                                    mixed_fund_composition=composition,
+                                    remitted_tax_implications=remitted_tax_implications or None,
+                                    destination=Destination.UK,
+                                )
+                            )
+
+                    overseas_total = pending_overseas_transfer[broker][y]
+                    if overseas_total > 0:
+                        movement, tax_movement = composition.withdraw_money_prorated(overseas_total)
+                        message = (
+                            "Annualized overseas transfer for tax year %s/%s in %s: "
+                            "aggregated £%s removed prorated on all buckets"
+                        ) % (y, y + 1, broker, round_decimal(overseas_total, 2))
+                        LOGGER.debug(message)
+                        if date_index >= tax_year_start_index:
+                            mixed_fund_log.append(
+                                MixedFundEntry(
+                                    message=message,
+                                    movement=movement,
+                                    tax_movement=tax_movement,
+                                    mixed_fund_composition=composition,
+                                    destination=Destination.OVERSEAS,
+                                )
+                            )
 
         self.process_dividends()
         self.process_interests()
@@ -2064,8 +2195,12 @@ def calculate_cgt(args: argparse.Namespace) -> None:
     initial_prices = InitialPrices(args.initial_prices_file)
     spin_off_handler = SpinOffHandler(args.spin_offs_file)
     isin_converter = IsinConverter(args.isin_translation_file)
-    tax_filings = read_remittance_basis(args.remittance_basis_file)
-    owr_events = read_owr(args.owr_file)
+    has_schwab = bool(
+        args.schwab_file or args.schwab_award_file or args.schwab_equity_award_json
+    )
+    tax_filings = read_remittance_basis(args.remittance_basis_file, warn=has_schwab)
+    owr_events = read_owr(args.owr_file, warn=has_schwab)
+    trf_handler = TRFHandler(args.trf_file, prompt=args.trf_prompt)
 
     calculator = CapitalGainsCalculator(
         args.year,
@@ -2077,9 +2212,9 @@ def calculate_cgt(args: argparse.Namespace) -> None:
         args.interest_fund_tickers,
         tax_filings,
         owr_events,
+        trf_handler=trf_handler,
         balance_check=args.balance_check,
         calc_unrealized_gains=args.calc_unrealized_gains,
-
     )
     # First pass converts broker transactions to HMRC transactions.
     # This means applying same day rule and collapsing all transactions with

@@ -7,7 +7,7 @@ import datetime
 from datetime import timedelta
 from decimal import Decimal
 from enum import Enum
-from typing import TYPE_CHECKING, DefaultDict
+from typing import TYPE_CHECKING, DefaultDict, Final
 from collections import defaultdict
 
 from .exceptions import InvalidTransactionError
@@ -259,6 +259,44 @@ class MixedFundMoneyCategory(Enum):
     RELEVANT_FOREIGN_INCOME_SUBJECT_TO_A_FOREIGN_FAX = 7
     FOREIGN_CHARGEABLE_GAINS_SUBJECT_TO_A_FOREIGN_FAX = 8
     OTHER_INCOME = 9
+    TRF_CAPITAL = 10
+
+
+# RDRM70000: the Temporary Repatriation Facility is available for tax years
+# starting 2025, 2026 and 2027.
+TRF_RELEVANT_TAX_YEARS: Final[tuple[int, ...]] = (2025, 2026, 2027)
+
+# Sentinel "tax_year" bucket key for TRF Capital: TRF Capital has no
+# associated tax year. Using a value larger than any real tax year means
+# get_next_none_empty_bucket()'s `sorted(..., reverse=True)` naturally checks
+# this bucket FIRST, giving TRF Capital remittance priority over every other
+# bucket with zero extra code in get_next_none_empty_bucket/
+# withdraw_money_buckets_order. It also sorts first (leftmost) in the
+# "by tax year and type" tables, which is consistent with it being the
+# highest-priority money.
+TRF_CAPITAL_TAX_YEAR: Final[int] = 999999
+
+
+class Period(Enum):
+    """3-way grouping of mixed-fund money for pre/post-2025/TRF breakdowns."""
+
+    POST_2025 = "post_2025"
+    PRE_2025 = "pre_2025"
+    TRF_CAPITAL = "trf_capital"
+
+
+_PERIOD_ORDER: Final[dict[Period, int]] = {
+    Period.POST_2025: 0,
+    Period.PRE_2025: 1,
+    Period.TRF_CAPITAL: 2,
+}
+
+
+def get_period(tax_year: int) -> Period:
+    """Classify a bucket's tax_year into pre-2025 / 2025-and-later / TRF Capital."""
+    if tax_year == TRF_CAPITAL_TAX_YEAR:
+        return Period.TRF_CAPITAL
+    return Period.POST_2025 if tax_year >= 2025 else Period.PRE_2025
 
 
 class MixedFundComposition:
@@ -302,11 +340,40 @@ class MixedFundComposition:
                 MixedFundMoneyCategory.EMPLOYMENT_INCOME_SUBJECT_TO_A_FOREIGN_FAX,
                 MixedFundMoneyCategory.RELEVANT_FOREIGN_INCOME_SUBJECT_TO_A_FOREIGN_FAX,
                 MixedFundMoneyCategory.FOREIGN_CHARGEABLE_GAINS_SUBJECT_TO_A_FOREIGN_FAX,
+                MixedFundMoneyCategory.TRF_CAPITAL,
             ]:
                 self.tax_buckets[tax_year][category] += tax_amount
             else:
                 raise ValueError("Cannot add tax amount to a category not subject to foreign tax")
         return dict({tax_year: dict({category: amount})}), dict({tax_year: dict({category: tax_amount})})
+
+    def remove_money(self, tax_year: int, category: MixedFundMoneyCategory, amount: Decimal, tax_amount=None) \
+        -> tuple[dict[int, dict[MixedFundMoneyCategory, Decimal]], dict[int, dict[MixedFundMoneyCategory, Decimal]]]:
+        """Money is removed from the relevant category bucket. Inverse of add_money."""
+
+        if amount < 0:
+            raise ValueError("Cannot remove negative amount from a mixed fund")
+        if tax_amount and tax_amount < 0:
+            raise ValueError("Cannot remove negative tax amount from a mixed fund")
+        available = self.buckets[tax_year][category]
+        if amount > available:
+            raise ValueError(
+                f"Cannot remove £{amount} from ({tax_year}, {category}) in {self.broker}: "
+                f"only £{available} available"
+            )
+        self.buckets[tax_year][category] -= amount
+        if tax_amount:
+            tax_available = self.tax_buckets[tax_year][category]
+            if tax_amount > tax_available:
+                raise ValueError(
+                    f"Cannot remove £{tax_amount} foreign tax from ({tax_year}, {category}) "
+                    f"in {self.broker}: only £{tax_available} available"
+                )
+            self.tax_buckets[tax_year][category] -= tax_amount
+        return (
+            dict({tax_year: dict({category: -amount})}),
+            dict({tax_year: dict({category: -tax_amount if tax_amount else Decimal(0)})}),
+        )
 
 
     def get_total_amount(self) -> Decimal:
@@ -367,6 +434,41 @@ class MixedFundComposition:
                 tax_withdrawals[tax_year][category] = -min(amount, withdrawal) * tax_rate
 
         return withdrawals, tax_withdrawals
+
+    def declare_trf(
+        self,
+        allocations: dict[tuple[int, MixedFundMoneyCategory], Decimal],
+    ) -> tuple[dict[int, dict[MixedFundMoneyCategory, Decimal]], dict[int, dict[MixedFundMoneyCategory, Decimal]]]:
+        """Designate pre-2025 amounts as TRF Capital (RDRM70000).
+
+        Moves each (source tax_year, category) amount out of its bucket and into
+        the TRF_CAPITAL_TAX_YEAR/TRF_CAPITAL bucket, carrying any associated
+        foreign tax credit proportionally, via remove_money/add_money.
+        """
+        movement: dict[int, dict[MixedFundMoneyCategory, Decimal]] = {}
+        tax_movement: dict[int, dict[MixedFundMoneyCategory, Decimal]] = {}
+
+        for (tax_year, category), amount in allocations.items():
+            if not amount:
+                continue
+            if tax_year >= 2025 or category == MixedFundMoneyCategory.TRF_CAPITAL:
+                raise ValueError(
+                    f"Only pre-2025 amounts can be designated as TRF Capital, got ({tax_year}, {category})"
+                )
+
+            available = self.buckets[tax_year][category]
+            tax_available = self.tax_buckets[tax_year][category]
+            tax_amount = tax_available * amount / available if available else Decimal(0)
+
+            removed, removed_tax = self.remove_money(tax_year, category, amount, tax_amount)
+            added, added_tax = self.add_money(
+                TRF_CAPITAL_TAX_YEAR, MixedFundMoneyCategory.TRF_CAPITAL, amount, tax_amount
+            )
+
+            movement = aggregate_dicts(aggregate_dicts(movement, removed), added)
+            tax_movement = aggregate_dicts(aggregate_dicts(tax_movement, removed_tax), added_tax)
+
+        return movement, tax_movement
 
     def get_list_representation_buckets(self):
         return get_list_representation_buckets(self.buckets)
@@ -715,7 +817,7 @@ class CapitalGainsReport:
     mixed_funds_log: dict
     mixed_funds_recap_log: dict[str, list[MixedFundEntry]] = field(init=False)
     mixed_funds_pre_post_2025_columns: dict[
-        str, list[tuple[bool, MixedFundMoneyCategory]]
+        str, list[tuple[Period, MixedFundMoneyCategory]]
     ] = field(init=False)
     mixed_funds_columns: dict[str, list[tuple[int, MixedFundMoneyCategory]]] = field(init=False)
     mixed_funds_type_columns: dict[str, list[MixedFundMoneyCategory]] = field(init=False)
@@ -756,16 +858,16 @@ class CapitalGainsReport:
             for entry in mixed_fund_log:
                 composition = entry.composition
                 for (tax_year, category, amount) in composition:
-                    is_post_2025 = tax_year >= 2025
-                    if amount and (is_post_2025, category) not in pre_post_2025_columns:
-                        pre_post_2025_columns.append((is_post_2025, category))
+                    period = get_period(tax_year)
+                    if amount and (period, category) not in pre_post_2025_columns:
+                        pre_post_2025_columns.append((period, category))
                     if amount and (tax_year, category) not in columns:
                         columns.append((tax_year, category))
                     if amount and category not in categories:
                         categories.append(category)
             pre_post_2025_columns = sorted(
                 pre_post_2025_columns,
-                key=lambda x: (not x[0], x[1].value),
+                key=lambda x: (_PERIOD_ORDER[x[0]], x[1].value),
             )
             self.mixed_funds_pre_post_2025_columns[broker] = pre_post_2025_columns
             columns = sorted(columns, key=lambda x:  (-x[0], x[1].value) )
@@ -903,11 +1005,13 @@ class CapitalGainsReport:
                 continue
             if has_foreign_tax is not None and bool(foreign_tax) != has_foreign_tax:
                 continue
+            if pre_2025 is not None and tax_year == TRF_CAPITAL_TAX_YEAR:
+                continue
             if pre_2025 is not None and (tax_year < 2025) != pre_2025:
                 continue
             if category is not None and cat != category:
                 continue
-            if nature is not None and _CATEGORY_NATURE[cat] != nature:
+            if nature is not None and _CATEGORY_NATURE.get(cat) != nature:
                 continue
             total += amount
         return total
@@ -932,11 +1036,13 @@ class CapitalGainsReport:
                 continue
             if has_foreign_tax is not None and bool(foreign_tax) != has_foreign_tax:
                 continue
+            if pre_2025 is not None and tax_year == TRF_CAPITAL_TAX_YEAR:
+                continue
             if pre_2025 is not None and (tax_year < 2025) != pre_2025:
                 continue
             if category is not None and cat != category:
                 continue
-            if nature is not None and _CATEGORY_NATURE[cat] != nature:
+            if nature is not None and _CATEGORY_NATURE.get(cat) != nature:
                 continue
             total += amount
             tax_total += foreign_tax
@@ -1047,6 +1153,28 @@ class CapitalGainsReport:
         """Total transferred overseas drawn from 2025-and-later tax year buckets."""
         return -self._sum_transfer_out(broker, destination=Destination.OVERSEAS, pre_2025=False)
 
+    def remitted_from_trf_capital(self, broker: str | None = None) -> Decimal:
+        """Total remitted to the UK drawn from TRF Capital."""
+        return -self._sum_transfer_out(
+            broker, destination=Destination.UK, category=MixedFundMoneyCategory.TRF_CAPITAL
+        )
+
+    def transferred_overseas_from_trf_capital(self, broker: str | None = None) -> Decimal:
+        """Total transferred overseas drawn from TRF Capital."""
+        return -self._sum_transfer_out(
+            broker, destination=Destination.OVERSEAS, category=MixedFundMoneyCategory.TRF_CAPITAL
+        )
+
+    def trf_capital_balance(self, broker: str) -> Decimal:
+        """TRF Capital balance at the end of the tax year."""
+        recap = self.mixed_funds_recap_log.get(broker)
+        if not recap:
+            return Decimal(0)
+        for _, category, amount in recap[-1].composition:
+            if category == MixedFundMoneyCategory.TRF_CAPITAL:
+                return amount
+        return Decimal(0)
+
     def breakdown_by_category_with_tax(
         self,
         broker: str | None = None,
@@ -1139,7 +1267,7 @@ class CapitalGainsReport:
                 out += f"(included as {dist_type})\n"
 
         out += f"Number of disposals: {self.disposal_count}\n"
-        out += f"Disposed securities: {self.disposed_symbols}\n"
+        out += f"Disposed securities: {sorted(self.disposed_symbols)}\n"
         out += f"Disposal proceeds: £{self.disposal_proceeds}\n"
         out += f"Allowable costs: £{self.allowable_costs}\n"
         out += f"Capital gain: £{self.capital_gain}\n"
@@ -1191,6 +1319,9 @@ class CapitalGainsReport:
             out += f"  Total remitted gains with UK tax implication: £{round_decimal(self.remitted_gains_tax_implication(broker), 2)}\n"
             out += f"    - without tax relief: £{round_decimal(self.remitted_gains_tax_implication_no_relief(broker), 2)}\n"
             out += f"    - with tax relief: £{round_decimal(self.remitted_gains_tax_implication_with_relief(broker)[0], 2)} -- foreign tax paid: £{round_decimal(self.remitted_gains_tax_implication_with_relief(broker)[1], 2)}\n"
+            out += f"  Total remitted from TRF Capital: £{round_decimal(self.remitted_from_trf_capital(broker), 2)}\n"
+            out += f"  Total transferred overseas from TRF Capital: £{round_decimal(self.transferred_overseas_from_trf_capital(broker), 2)}\n"
+            out += f"  TRF Capital balance at end of year: £{round_decimal(self.trf_capital_balance(broker), 2)}\n"
 
         return out
 

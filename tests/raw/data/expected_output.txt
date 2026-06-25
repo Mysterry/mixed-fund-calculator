@@ -1,4 +1,4 @@
-Parsing tests/raw/data/test_data.csv...
+Parsing tests\raw\data\test_data.csv...
 Found 16 broker transactions
 First pass completed
 Final portfolio:
@@ -15,12 +15,13 @@ Disposal proceeds: £11422.10
 
 Second pass completed
 Portfolio at the end of 2022/2023 tax year:
-  AMZN: 210.00, £1900.67
-  OPRA: 120.00, £492.03
-  BABA: 30.00, £1942.83
-  META: 119.00, £18042.21
+  AMZN: quantity: 210.00, cost: £1900.67
+  OPRA: quantity: 120.00, cost: £492.03
+  BABA: quantity: 30.00, cost: £1942.83
+  META: quantity: 119.00, cost: £18042.21
 For tax year 2022/2023:
 Number of disposals: 3
+Disposed securities: ['META']
 Disposal proceeds: £11422.10
 Allowable costs: £13588.22
 Capital gain: £0.00
@@ -32,6 +33,22 @@ Total amount of dividends tax yearly allowance: £2000.00
 Total taxable dividends proceeds: £719.29
 Total UK interest proceeds: £0.00
 Total foreign interest proceeds: £0.00
+REMITTANCE RESULTS PER MIXED FUND:
+Unknown:
+  Total remitted income: £0.00
+  Total remitted income without UK tax implication: £0.00
+  Total remitted income with UK tax implication: £0.00
+    - without tax relief: £0.00
+    - with tax relief: £0.00 -- foreign tax paid: £0.00
+  Total remitted gains: £0.00
+  Total remitted gains without UK tax implication: £0.00
+  Total remitted gains with UK tax implication: £0.00
+    - without tax relief: £0.00
+    - with tax relief: £0.00 -- foreign tax paid: £0.00
+  Total remitted from TRF Capital: £0.00
+  Total transferred overseas from TRF Capital: £0.00
+  TRF Capital balance at end of year: £0.00
 
+Generating PDF report...
 Generating PDF report...
 All done!

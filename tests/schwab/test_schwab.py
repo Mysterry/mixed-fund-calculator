@@ -1,4 +1,4 @@
-"""Test Schwab parser."""
+﻿"""Test Schwab parser."""
 
 from pathlib import Path
 import subprocess
@@ -24,10 +24,13 @@ def test_run_with_schwab_example_2023_files() -> None:
             f"stderr:\n{result.stderr}"
         )
     stderr_lines = result.stderr.strip().split("\n")
-    assert len(stderr_lines) == 1
+    assert len(stderr_lines) == 4
     assert stderr_lines[0] == "WARNING: No Schwab Award file provided"
+    assert stderr_lines[1] == "WARNING: No Schwab transaction file provided"
+    assert stderr_lines[2] == "WARNING: No remittance basis file provided"
+    assert stderr_lines[3] == "WARNING: No OWR file provided"
     expected_file = Path("tests") / "schwab" / "data" / "2023" / "expected_output.txt"
-    expected = expected_file.read_text()
+    expected = expected_file.read_text(encoding="utf-8")
     cmd_str = " ".join([param if param else "''" for param in cmd])
     assert result.stdout == expected, (
         "Run with example files generated unexpected outputs, "
@@ -52,14 +55,17 @@ def test_run_with_schwab_cash_merger_files() -> None:
             f"stderr:\n{result.stderr}"
         )
     stderr_lines = result.stderr.strip().split("\n")
-    expected_lines = 2
+    expected_lines = 5
     assert len(stderr_lines) == expected_lines
     assert stderr_lines[0] == "WARNING: No Schwab Award file provided"
-    assert stderr_lines[1].startswith("WARNING: Cash Merger support is not complete")
+    assert stderr_lines[1] == "WARNING: No Schwab transaction file provided"
+    assert stderr_lines[2].startswith("WARNING: Cash Merger support is not complete")
+    assert stderr_lines[3] == "WARNING: No remittance basis file provided"
+    assert stderr_lines[4] == "WARNING: No OWR file provided"
     expected_file = (
         Path("tests") / "schwab" / "data" / "cash_merger" / "expected_output.txt"
     )
-    expected = expected_file.read_text()
+    expected = expected_file.read_text(encoding="utf-8")
     cmd_str = " ".join([param if param else "''" for param in cmd])
     assert result.stdout == expected, (
         "Run with example files generated unexpected outputs, "
@@ -85,12 +91,15 @@ def test_run_with_schwab_rsu_settlement_files() -> None:
             f"stdout:\n{result.stdout}\n"
             f"stderr:\n{result.stderr}"
         )
-    stderr = result.stderr.strip()
-    assert stderr == ""
+    stderr_lines = result.stderr.strip().split("\n")
+    assert len(stderr_lines) == 3
+    assert stderr_lines[0] == "WARNING: No Schwab transaction file provided"
+    assert stderr_lines[1] == "WARNING: No remittance basis file provided"
+    assert stderr_lines[2] == "WARNING: No OWR file provided"
     expected_file = (
         Path("tests") / "schwab" / "data" / "rsu_settlement" / "expected_output.txt"
     )
-    expected = expected_file.read_text()
+    expected = expected_file.read_text(encoding="utf-8")
     cmd_str = " ".join([param if param else "''" for param in cmd])
     assert result.stdout == expected, (
         "Run with example files generated unexpected outputs, "
@@ -115,15 +124,19 @@ def test_run_with_schwab_bond_interest_files() -> None:
             f"stderr:\n{result.stderr}"
         )
     stderr_lines = result.stderr.strip().split("\n")
-    assert len(stderr_lines) == 1
+    assert len(stderr_lines) == 4
     assert stderr_lines[0] == "WARNING: No Schwab Award file provided"
+    assert stderr_lines[1] == "WARNING: No Schwab transaction file provided"
+    assert stderr_lines[2] == "WARNING: No remittance basis file provided"
+    assert stderr_lines[3] == "WARNING: No OWR file provided"
     expected_file = (
         Path("tests") / "schwab" / "data" / "bond_interest" / "expected_output.txt"
     )
-    expected = expected_file.read_text()
+    expected = expected_file.read_text(encoding="utf-8")
     cmd_str = " ".join([param if param else "''" for param in cmd])
     assert result.stdout == expected, (
         "Run with example files generated unexpected outputs, "
         "if you added new features update the test with:\n"
         f"{cmd_str} > {expected_file}"
     )
+

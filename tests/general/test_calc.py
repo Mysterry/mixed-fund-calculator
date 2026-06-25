@@ -58,6 +58,7 @@ def test_mixed_fund_report_exposes_type_only_columns_and_recap() -> None:
         MixedFundComposition,
         MixedFundEntry,
         MixedFundMoneyCategory,
+        Period,
     )
 
     composition = MixedFundComposition("Schwab")
@@ -129,9 +130,9 @@ def test_mixed_fund_report_exposes_type_only_columns_and_recap() -> None:
         (2024, MixedFundMoneyCategory.EMPLOYMENT_INCOME),
     ]
     assert report.mixed_funds_pre_post_2025_columns["Schwab"] == [
-        (True, MixedFundMoneyCategory.EMPLOYMENT_INCOME),
-        (True, MixedFundMoneyCategory.RELEVANT_FOREIGN_INCOME),
-        (False, MixedFundMoneyCategory.EMPLOYMENT_INCOME),
+        (Period.POST_2025, MixedFundMoneyCategory.EMPLOYMENT_INCOME),
+        (Period.POST_2025, MixedFundMoneyCategory.RELEVANT_FOREIGN_INCOME),
+        (Period.PRE_2025, MixedFundMoneyCategory.EMPLOYMENT_INCOME),
     ]
     assert report.mixed_funds_type_columns["Schwab"] == [
         MixedFundMoneyCategory.EMPLOYMENT_INCOME,
@@ -158,6 +159,7 @@ def test_mixed_fund_pre_post_2025_columns_handle_pre_2025_years() -> None:
         CapitalGainsReport,
         MixedFundEntry,
         MixedFundMoneyCategory,
+        Period,
     )
 
     report = CapitalGainsReport(
@@ -194,7 +196,7 @@ def test_mixed_fund_pre_post_2025_columns_handle_pre_2025_years() -> None:
     )
 
     assert report.mixed_funds_pre_post_2025_columns["Schwab"] == [
-        (False, MixedFundMoneyCategory.EMPLOYMENT_INCOME)
+        (Period.PRE_2025, MixedFundMoneyCategory.EMPLOYMENT_INCOME)
     ]
 
 
@@ -446,16 +448,19 @@ def test_run_with_example_files() -> None:
         )
 
     stderr_lines = result.stderr.strip().split("\n")
-    expected_lines = 2
+    expected_lines = 5
     assert len(stderr_lines) == expected_lines
     assert stderr_lines[0] == "WARNING: No Schwab Award file provided"
-    assert stderr_lines[1].startswith("WARNING: Bed and breakfasting for VUAG"), (
+    assert stderr_lines[1] == "WARNING: No Schwab transaction file provided"
+    assert stderr_lines[2] == "WARNING: No remittance basis file provided"
+    assert stderr_lines[3] == "WARNING: No OWR file provided"
+    assert stderr_lines[4].startswith("WARNING: Bed and breakfasting for VUAG"), (
         "Unexpected stderr message"
     )
     expected_file = (
         Path("tests") / "general" / "data" / "test_run_with_example_files_output.txt"
     )
-    expected = expected_file.read_text()
+    expected = expected_file.read_text(encoding="utf-8")
     cmd_str = " ".join([param if param else "''" for param in cmd])
     assert result.stdout == expected, (
         "Run with example files generated unexpected outputs, "

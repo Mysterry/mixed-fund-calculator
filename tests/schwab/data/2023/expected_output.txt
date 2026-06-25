@@ -1,4 +1,4 @@
-Parsing tests/schwab/data/2023/transactions.csv...
+Parsing tests\schwab\data\2023\transactions.csv...
 Found 7 broker transactions
 First pass completed
 Final portfolio:
@@ -10,6 +10,7 @@ Second pass completed
 Portfolio at the end of 2023/2024 tax year:
 For tax year 2023/2024:
 Number of disposals: 3
+Disposed securities: ['BAR', 'FOO', 'QUX']
 Disposal proceeds: £248082.51
 Allowable costs: £232740.33
 Capital gain: £15342.18
@@ -21,6 +22,22 @@ Total amount of dividends tax yearly allowance: £1000.00
 Total taxable dividends proceeds: £0.00
 Total UK interest proceeds: £0.00
 Total foreign interest proceeds: £0.00
+REMITTANCE RESULTS PER MIXED FUND:
+Charles Schwab:
+  Total remitted income: £0.00
+  Total remitted income without UK tax implication: £0.00
+  Total remitted income with UK tax implication: £0.00
+    - without tax relief: £0.00
+    - with tax relief: £0.00 -- foreign tax paid: £0.00
+  Total remitted gains: £0.00
+  Total remitted gains without UK tax implication: £0.00
+  Total remitted gains with UK tax implication: £0.00
+    - without tax relief: £0.00
+    - with tax relief: £0.00 -- foreign tax paid: £0.00
+  Total remitted from TRF Capital: £0.00
+  Total transferred overseas from TRF Capital: £0.00
+  TRF Capital balance at end of year: £0.00
 
+Generating PDF report...
 Generating PDF report...
 All done!

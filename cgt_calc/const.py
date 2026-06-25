@@ -124,3 +124,6 @@ DEFAULT_SPIN_OFF_FILE: Final = DEFAULT_OUTPUT_FOLDER / "spin_offs.csv"
 
 # ISIN to ticker translation file
 DEFAULT_ISIN_TRANSLATION_FILE: Final = DEFAULT_OUTPUT_FOLDER / "isin_translation.csv"
+
+# TRF (Temporary Repatriation Facility) declarations file
+DEFAULT_TRF_FILE: Final = DEFAULT_OUTPUT_FOLDER / "trf_declarations.csv"

@@ -1,4 +1,4 @@
-Parsing tests/trading212/data/2024/inputs/transactions.csv...
+Parsing tests\trading212\data\2024\inputs\transactions.csv...
 Found 7 broker transactions
 First pass completed
 Final portfolio:
@@ -10,6 +10,7 @@ Second pass completed
 Portfolio at the end of 2024/2025 tax year:
 For tax year 2024/2025:
 Number of disposals: 1
+Disposed securities: ['FOO']
 Disposal proceeds: £3143.21
 Allowable costs: £2386.06
 Capital gain: £757.15
@@ -21,6 +22,22 @@ Total amount of dividends tax yearly allowance: £500.00
 Total taxable dividends proceeds: £0.00
 Total UK interest proceeds: £0.00
 Total foreign interest proceeds: £0.00
+REMITTANCE RESULTS PER MIXED FUND:
+Trading212:
+  Total remitted income: £1247.56
+  Total remitted income without UK tax implication: £1247.56
+  Total remitted income with UK tax implication: £0.00
+    - without tax relief: £0.00
+    - with tax relief: £0.00 -- foreign tax paid: £0.00
+  Total remitted gains: £752.44
+  Total remitted gains without UK tax implication: £752.44
+  Total remitted gains with UK tax implication: £0.00
+    - without tax relief: £0.00
+    - with tax relief: £0.00 -- foreign tax paid: £0.00
+  Total remitted from TRF Capital: £0.00
+  Total transferred overseas from TRF Capital: £0.00
+  TRF Capital balance at end of year: £0.00
 
+Generating PDF report...
 Generating PDF report...
 All done!

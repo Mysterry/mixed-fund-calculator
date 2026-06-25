@@ -78,8 +78,8 @@ class TaxFilings:
                 raise ParsingError(file, f"Is remittance basis needs to be coded with 0 or 1: {is_remittance_basis}")
             self.tax_filings[year] = TaxFilingBasis.REMITTANCE if is_remittance_basis == TaxFilingBasis.REMITTANCE.value else TaxFilingBasis.ARISING
 
-    def get(self, year: int) -> TaxFilingBasis:
-        return self.tax_filings[year]
+    def get(self, year: int) -> TaxFilingBasis | None:
+        return self.tax_filings.get(year)
 
 
 @dataclass
@@ -132,10 +132,12 @@ def _parse_owr_date(date_str: str, file, row_dict: OrderedDict[str, str]) -> dat
 
 def read_remittance_basis(
     remittance_basis_file: Path | None,
+    warn: bool = True,
 ) -> TaxFilings:
     """Read remittance basis history from csv file."""
     if remittance_basis_file is None:
-        LOGGER.warning("No remittance basis file provided")
+        if warn:
+            LOGGER.warning("No remittance basis file provided")
         return TaxFilings(tax_filings=OrderedDict(), file=remittance_basis_file)
 
     with remittance_basis_file.open(encoding="utf-8") as csv_file:
@@ -165,10 +167,12 @@ def read_remittance_basis(
 
 def read_owr(
     owr_file: Path | None,
+    warn: bool = True,
 ) -> list[OWREvent]:
     """Read OWR events from CSV file."""
     if owr_file is None:
-        LOGGER.warning("No OWR file provided")
+        if warn:
+            LOGGER.warning("No OWR file provided")
         return list()
     with owr_file.open(encoding="utf-8") as csv_file:
         print(f"Parsing {owr_file}...")

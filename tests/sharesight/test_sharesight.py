@@ -1,4 +1,4 @@
-"""Tests for the Sharesight parser."""
+﻿"""Tests for the Sharesight parser."""
 
 from __future__ import annotations
 
@@ -47,7 +47,7 @@ def test_run_with_sharesight_files_no_balance_check() -> None:
         / "data"
         / "test_run_with_sharesight_files_no_balance_check_output.txt"
     )
-    expected = expected_file.read_text()
+    expected = expected_file.read_text(encoding="utf-8")
     cmd_str = " ".join([param if param else "''" for param in cmd])
     assert result.stdout == expected, (
         "Run with example files generated unexpected outputs, "
@@ -210,3 +210,4 @@ def test_parse_trade_report_invalid_decimal(tmp_path: Path) -> None:
         list(parse_trade_report(file_path))
 
     assert excinfo.value.row_index == 2
+

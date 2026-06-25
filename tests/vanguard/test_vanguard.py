@@ -1,4 +1,4 @@
-"""Test Vanguard parser support."""
+﻿"""Test Vanguard parser support."""
 
 from __future__ import annotations
 
@@ -37,7 +37,7 @@ def test_run_with_vanguard_files() -> None:
         )
     assert result.stderr == "", "Run with example files generated errors"
     expected_file = Path("tests") / "vanguard" / "data" / "expected_output.txt"
-    expected = expected_file.read_text()
+    expected = expected_file.read_text(encoding="utf-8")
     cmd_str = " ".join([param if param else "''" for param in cmd])
     assert result.stdout == expected, (
         "Run with example files generated unexpected outputs, "
@@ -126,3 +126,4 @@ def test_read_vanguard_transactions_empty_file(tmp_path: Path) -> None:
         read_vanguard_transactions(vanguard_file)
 
     assert "Vanguard CSV file is empty" in str(exc.value)
+

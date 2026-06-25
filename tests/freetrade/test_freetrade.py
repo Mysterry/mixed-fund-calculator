@@ -1,4 +1,4 @@
-"""Test Freetrade support."""
+﻿"""Test Freetrade support."""
 
 import csv
 from decimal import Decimal
@@ -92,7 +92,7 @@ def test_run_with_freetrade_file() -> None:
         )
     assert result.stderr == "", "Run with example files generated errors"
     expected_file = Path("tests") / "freetrade" / "data" / "expected_output.txt"
-    expected = expected_file.read_text()
+    expected = expected_file.read_text(encoding="utf-8")
     cmd_str = " ".join([param if param else "''" for param in cmd])
     assert result.stdout == expected, (
         "Run with example files generated unexpected outputs, "
@@ -188,3 +188,4 @@ def test_freetrade_transaction_unsupported_action(
         match="Unsupported Freetrade action 'ADJUSTMENT'",
     ):
         FreetradeTransaction(COLUMNS, row, dummy_file)
+

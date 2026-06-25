@@ -12,9 +12,11 @@ from typing import TYPE_CHECKING, Any
 from .const import (
     DEFAULT_EXCHANGE_RATES_FILE,
     DEFAULT_ISIN_TRANSLATION_FILE,
+    DEFAULT_MIXED_FUND_REPORT_PATH,
     DEFAULT_REPORT_PATH,
     DEFAULT_SPIN_OFF_FILE,
-    INTERNAL_START_DATE, DEFAULT_MIXED_FUND_REPORT_PATH,
+    DEFAULT_TRF_FILE,
+    INTERNAL_START_DATE,
 )
 
 if TYPE_CHECKING:
@@ -364,7 +366,15 @@ Environment variables:
         type=optional_file_type,
         metavar="PATH",
         default=None,
-        help="historical data of OWR of RSU awards (default: all awards are 100% UK taxed)",
+        help="historical data of OWR of RSU awards (default: all awards are 100%% UK taxed)",
+    )
+    data_group.add_argument(
+        "--trf-file",
+        type=optional_file_type,
+        metavar="PATH",
+        default=DEFAULT_TRF_FILE,
+        help="Temporary Repatriation Facility (TRF) declarations in CSV format "
+             "(default: %(default)s)",
     )
 
     # Calculation Options
@@ -389,6 +399,13 @@ Environment variables:
         metavar="TICKER[,TICKER...]",
         default=[],
         help="tickers of bond funds/ETFs whose dividends are taxed as interest in the UK",
+    )
+    calc_group.add_argument(
+        "--no-trf-prompt",
+        dest="trf_prompt",
+        action="store_false",
+        default=True,
+        help="do not interactively prompt for TRF declarations; use only previously recorded declarations",
     )
 
     # Output Options

@@ -1,4 +1,4 @@
-"""Tests for the Trading 212 parser."""
+﻿"""Tests for the Trading 212 parser."""
 
 from __future__ import annotations
 
@@ -306,10 +306,11 @@ def test_run_with_trading212_2024_files() -> None:
     expected_file = (
         Path("tests") / "trading212" / "data" / "2024" / "expected_output.txt"
     )
-    expected = expected_file.read_text()
+    expected = expected_file.read_text(encoding="utf-8")
     cmd_str = " ".join([param if param else "''" for param in cmd])
     assert result.stdout == expected, (
         "Run with example files generated unexpected outputs, "
         "if you added new features update the test with:\n"
         f"{cmd_str} > {expected_file}"
     )
+
