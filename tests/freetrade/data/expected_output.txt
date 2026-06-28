@@ -1,16 +1,24 @@
 Found 17 broker transactions
 First pass completed
-Final portfolio:
+--- Tax year 2023/2024 (2023-04-06 to 2024-04-05) ---
+Portfolio at 2024-04-05:
   TSLA: 1.45
   GOOGL: 0.14
   NDAQ: 2.12
-Final balance:
-  Freetrade: 8946.79 (GBP)
-Dividends:
+Cash balance at 2024-04-05:
+  Freetrade: 6016.43 (GBP)
+Disposal proceeds for 2023/2024: £2930.36
+Dividends for 2023/2024:
   NDAQ: 1.78 (GBP)
-Interests:
+Interests for 2023/2024:
   Freetrade: 9.02 (GBP)
-Disposal proceeds: £2930.36
+--- Current state (as of 2024-01-16) ---
+Current portfolio:
+  TSLA: 1.45
+  GOOGL: 0.14
+  NDAQ: 2.12
+Current cash balance:
+  Freetrade: 8946.79 (GBP)
 
 Second pass completed
 Portfolio at the end of 2023/2024 tax year:

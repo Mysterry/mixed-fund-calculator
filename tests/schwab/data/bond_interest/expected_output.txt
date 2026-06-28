@@ -1,12 +1,17 @@
 Parsing tests\schwab\data\bond_interest\transactions.csv...
 Found 5 broker transactions
 First pass completed
-Final portfolio:
-Final balance:
-  Charles Schwab: 11055.75 (USD)
-Interests:
+--- Tax year 2023/2024 (2023-04-06 to 2024-04-05) ---
+Portfolio at 2024-04-05:
+Cash balance at 2024-04-05:
+  Charles Schwab: 11025.50 (USD)
+Disposal proceeds for 2023/2024: £0.00
+Interests for 2023/2024:
   Charles Schwab: 555.75 (USD)
-Disposal proceeds: £0.00
+--- Current state (as of 2023-12-15) ---
+Current portfolio:
+Current cash balance:
+  Charles Schwab: 11055.75 (USD)
 
 Second pass completed
 Portfolio at the end of 2023/2024 tax year:

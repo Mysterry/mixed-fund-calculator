@@ -146,6 +146,8 @@ class IsinConverter:
                 )
             entries: dict[str, set[str]] = {}
             for row in lines[1:]:
+                if not row:
+                    continue
                 entry = IsinTranslationEntry(row, file_label)
                 entries[entry.isin] = entry.symbols
             return entries

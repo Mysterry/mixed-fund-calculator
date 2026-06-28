@@ -1,14 +1,21 @@
 Parsing tests\raw\data\test_data_2.csv...
 Found 9 broker transactions
 First pass completed
-Final portfolio:
+--- Tax year 2022/2023 (2022-04-06 to 2023-04-05) ---
+Portfolio at 2023-04-05:
   AMZN: 10.00
   META: 50.00
-Final balance:
-  Unknown: 0.00 (USD)
-Dividends:
+Cash balance at 2023-04-05:
+  Unknown: 4804.95 (USD)
+Disposal proceeds for 2022/2023: £8431.31
+Dividends for 2022/2023:
   META: 5.00 (USD)
-Disposal proceeds: £8431.31
+--- Current state (as of 2023-02-10) ---
+Current portfolio:
+  AMZN: 10.00
+  META: 50.00
+Current cash balance:
+  Unknown: 0.00 (USD)
 
 Second pass completed
 Portfolio at the end of 2022/2023 tax year:

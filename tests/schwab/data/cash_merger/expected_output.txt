@@ -1,10 +1,15 @@
 Parsing tests\schwab\data\cash_merger\transactions.csv...
 Found 5 broker transactions
 First pass completed
-Final portfolio:
-Final balance:
+--- Tax year 2020/2021 (2020-04-06 to 2021-04-05) ---
+Portfolio at 2021-04-05:
+Cash balance at 2021-04-05:
+  Charles Schwab: 0.00 (USD)
+Disposal proceeds for 2020/2021: £711.69
+--- Current state (as of 2021-03-02) ---
+Current portfolio:
+Current cash balance:
   Charles Schwab: 1000.00 (USD)
-Disposal proceeds: £711.69
 
 Second pass completed
 Portfolio at the end of 2020/2021 tax year:

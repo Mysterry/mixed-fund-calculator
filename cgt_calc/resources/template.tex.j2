@@ -231,4 +231,35 @@
 \BLOCK{ endif }
 
 
+\BLOCK{ if report.trf_declarations }
+\clearpage
+\section*{Temporary Repatriation Facility (TRF) Declarations -- Tax Year \VAR{ report.tax_year }/\VAR{ report.tax_year + 1 }}
+
+\BLOCK{ set brokers = [] }
+\BLOCK{ for row in report.trf_declarations }
+\BLOCK{ if row.broker not in brokers }
+\BLOCK{ set _ = brokers.append(row.broker) }
+\BLOCK{ endif }
+\BLOCK{ endfor }
+
+\BLOCK{ for broker in brokers }
+\subsection*{\VAR{ latex_safe(broker) }}
+\begin{itemize}
+\BLOCK{ set broker_total = namespace(value=Decimal(0)) }
+\BLOCK{ for row in report.trf_declarations if row.broker == broker }
+\item Source tax year \VAR{ row.source_tax_year }/\VAR{ row.source_tax_year + 1 }, \VAR{ latex_safe(row.category) }: £\VAR{ "{:,}".format(row.amount) }
+\BLOCK{ set broker_total.value = broker_total.value + row.amount }
+\BLOCK{ endfor }
+\end{itemize}
+\textbf{Total declared for \VAR{ latex_safe(broker) }: £\VAR{ "{:,}".format(broker_total.value) }}
+\BLOCK{ endfor }
+
+\BLOCK{ set grand_total = namespace(value=Decimal(0)) }
+\BLOCK{ for row in report.trf_declarations }
+\BLOCK{ set grand_total.value = grand_total.value + row.amount }
+\BLOCK{ endfor }
+\vspace{1em}
+\textbf{Grand total TRF declared for \VAR{ report.tax_year }/\VAR{ report.tax_year + 1 }: £\VAR{ "{:,}".format(grand_total.value) }}
+\BLOCK{ endif }
+
 \end{document}

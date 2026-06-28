@@ -26,11 +26,6 @@
     9: "i",
     10: "j"
 } }
-\BLOCK{ set pre_post_label = {
-    Period.POST_2025: "2025 and later",
-    Period.PRE_2025: "pre-2025",
-    Period.TRF_CAPITAL: "TRF Capital"
-} }
 % ---------- CALCULATE MAX WIDTHS ----------
 \BLOCK{ set ns_max = namespace(max_columns=0, max_table_width=0) }
 \BLOCK{ for broker in report.mixed_funds_log.keys() }
@@ -131,7 +126,7 @@ Mixed funds calculations for
 \BLOCK{ for is_post, category in columns }
   \BLOCK{ if is_post != ns.current_period }
     \BLOCK{ if ns.current_period is not none }
-      \BLOCK{ set _ = ns.output.append('\\multicolumn{' ~ ns.period_span ~ '}{|c|}{\\textbf{' ~ pre_post_label[ns.current_period] ~ '}}') }
+      \BLOCK{ set _ = ns.output.append('\\multicolumn{' ~ ns.period_span ~ '}{|c|}{\\textbf{' ~ period_label[ns.current_period] ~ '}}') }
     \BLOCK{ endif }
     \BLOCK{ set ns.current_period = is_post }
     \BLOCK{ set ns.period_span = 1 }
@@ -139,7 +134,7 @@ Mixed funds calculations for
     \BLOCK{ set ns.period_span = ns.period_span + 1 }
   \BLOCK{ endif }
   \BLOCK{ if loop.last }
-    \BLOCK{ set _ = ns.output.append('\\multicolumn{' ~ ns.period_span ~ '}{|c|}{\\textbf{' ~ pre_post_label[ns.current_period] ~ '}}') }
+    \BLOCK{ set _ = ns.output.append('\\multicolumn{' ~ ns.period_span ~ '}{|c|}{\\textbf{' ~ period_label[ns.current_period] ~ '}}') }
   \BLOCK{ endif }
 \BLOCK{ endfor }
 \VAR{ ns.output | join(' & ') } \\
@@ -275,11 +270,10 @@ Mixed funds calculations for
     \item Without UK tax implication: \GBP\VAR{ "{:,}".format(round_decimal(report.remitted_gains_no_tax_implication(broker), 2))}
     \VAR{ category_breakdown(report.breakdown_by_category(broker, destination=Destination.UK, nature=RemittedIncomeType.CAPITAL_GAIN, uk_implication=None)) }
   \end{itemize}
-  \item From pre-2025 buckets: \GBP\VAR{ "{:,}".format(round_decimal(report.remitted_pre_2025(broker), 2))}
-  \VAR{ category_breakdown(report.breakdown_by_category(broker, destination=Destination.UK, pre_2025=True)) }
-  \item From 2025 and later buckets: \GBP\VAR{ "{:,}".format(round_decimal(report.remitted_post_2025(broker), 2))}
-  \VAR{ category_breakdown(report.breakdown_by_category(broker, destination=Destination.UK, pre_2025=False)) }
-  \item From TRF Capital: \GBP\VAR{ "{:,}".format(round_decimal(report.remitted_from_trf_capital(broker), 2))}
+  \BLOCK{ for period in [Period.POST_2025, Period.PRE_2025_REMITTANCE, Period.PRE_2025_ARISING, Period.TRF_CAPITAL] }
+  \item From \VAR{ period_label[period] }: \GBP\VAR{ "{:,}".format(round_decimal(report.remitted_by_period(broker, period), 2))}
+  \VAR{ category_breakdown(report.breakdown_by_category(broker, destination=Destination.UK, period=period)) }
+  \BLOCK{ endfor }
   \BLOCK{ set remitted_by_cat = report.remitted_by_category(broker) }
   \BLOCK{ if remitted_by_cat }
   \item By category:
@@ -289,11 +283,10 @@ Mixed funds calculations for
 
 \item \textbf{Transferred overseas: \GBP\VAR{ "{:,}".format(round_decimal(report.transferred_overseas_total(broker), 2))}}
 \begin{itemize}
-  \item From pre-2025 buckets: \GBP\VAR{ "{:,}".format(round_decimal(report.transferred_overseas_pre_2025(broker), 2))}
-  \VAR{ category_breakdown(report.breakdown_by_category(broker, destination=Destination.OVERSEAS, pre_2025=True)) }
-  \item From 2025 and later buckets: \GBP\VAR{ "{:,}".format(round_decimal(report.transferred_overseas_post_2025(broker), 2))}
-  \VAR{ category_breakdown(report.breakdown_by_category(broker, destination=Destination.OVERSEAS, pre_2025=False)) }
-  \item From TRF Capital: \GBP\VAR{ "{:,}".format(round_decimal(report.transferred_overseas_from_trf_capital(broker), 2))}
+  \BLOCK{ for period in [Period.POST_2025, Period.PRE_2025_REMITTANCE, Period.PRE_2025_ARISING, Period.TRF_CAPITAL] }
+  \item From \VAR{ period_label[period] }: \GBP\VAR{ "{:,}".format(round_decimal(report.transferred_overseas_by_period(broker, period), 2))}
+  \VAR{ category_breakdown(report.breakdown_by_category(broker, destination=Destination.OVERSEAS, period=period)) }
+  \BLOCK{ endfor }
   \BLOCK{ set overseas_by_cat = report.transferred_overseas_by_category(broker) }
   \BLOCK{ if overseas_by_cat }
   \item By category:

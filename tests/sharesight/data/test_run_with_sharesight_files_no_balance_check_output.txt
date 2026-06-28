@@ -2,17 +2,26 @@ Parsing tests\sharesight\data\inputs\All Trades Report - Test.csv...
 Parsing tests\sharesight\data\inputs\Taxable Income Report - Test.csv...
 Found 16 broker transactions
 First pass completed
-Final portfolio:
+--- Tax year 2020/2021 (2020-04-06 to 2021-04-05) ---
+Portfolio at 2021-04-05:
   FX:ETH: 2.59
   NASDAQ:FOO: 5.00
   FundUK:FUND1: 50.00
-Final balance:
-  Sharesight: -17854.31 (GBP)
+Cash balance at 2021-04-05:
+  Sharesight: -17857.31 (GBP)
   Sharesight: 7474.30 (USD)
-Dividends:
+Disposal proceeds for 2020/2021: £12999.61
+Dividends for 2020/2021:
   FOO.NASDAQ: 5.00, excluding 0.75 taxed at source (USD)
   FUND1.UKF: 3.00 (GBP)
-Disposal proceeds: £12999.61
+--- Current state (as of 2020-11-10) ---
+Current portfolio:
+  FX:ETH: 2.59
+  NASDAQ:FOO: 5.00
+  FundUK:FUND1: 50.00
+Current cash balance:
+  Sharesight: -17854.31 (GBP)
+  Sharesight: 7474.30 (USD)
 
 Second pass completed
 Portfolio at the end of 2020/2021 tax year:

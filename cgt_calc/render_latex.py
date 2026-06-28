@@ -17,6 +17,30 @@ from .model import (
 from .util import round_decimal, strip_zeros
 
 
+def _build_period_label(report: CapitalGainsReport) -> dict:
+    """Build human-readable labels for each Period, listing the specific tax years covered."""
+    pre_remittance_years: list[int] = []
+    pre_arising_years: list[int] = []
+    tf = report.tax_filings
+    if tf is not None:
+        for year, basis in tf.tax_filings.items():
+            if year < 2025:
+                if basis.value:  # TaxFilingBasis.REMITTANCE
+                    pre_remittance_years.append(year)
+                else:
+                    pre_arising_years.append(year)
+
+    def _fmt(years: list[int]) -> str:
+        return (" (" + ", ".join(str(y) for y in sorted(years)) + ")") if years else ""
+
+    return {
+        Period.POST_2025: "2025 and later",
+        Period.PRE_2025_REMITTANCE: "Pre-2025 remittance" + _fmt(pre_remittance_years),
+        Period.PRE_2025_ARISING: "Pre-2025 arising" + _fmt(pre_arising_years),
+        Period.TRF_CAPITAL: "TRF Capital",
+    }
+
+
 def render_pdf(
     report: CapitalGainsReport,
     output_path: Path,
@@ -44,6 +68,9 @@ def render_pdf(
     else:
         template = latex_template_env.get_template(LATEX_TEMPLATE_RESOURCE)
 
+    period_label = _build_period_label(report)
+    _tf = report.tax_filings
+
     output_text = template.render(
         report=report,
         round_decimal=round_decimal,
@@ -54,8 +81,9 @@ def render_pdf(
         Destination=Destination,
         RemittedIncomeType=RemittedIncomeType,
         Period=Period,
-        get_period=get_period,
+        get_period=lambda year: get_period(year, _tf),
         TRF_CAPITAL_TAX_YEAR=TRF_CAPITAL_TAX_YEAR,
+        period_label=period_label,
     )
 
     output_path.parent.mkdir(parents=True, exist_ok=True)

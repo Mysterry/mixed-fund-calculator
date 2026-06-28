@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 import datetime
 from datetime import timedelta
-from decimal import Decimal
+from decimal import Decimal, ROUND_DOWN, ROUND_HALF_UP
 from enum import Enum
 from typing import TYPE_CHECKING, DefaultDict, Final
 from collections import defaultdict
@@ -278,25 +278,40 @@ TRF_CAPITAL_TAX_YEAR: Final[int] = 999999
 
 
 class Period(Enum):
-    """3-way grouping of mixed-fund money for pre/post-2025/TRF breakdowns."""
+    """4-way grouping of mixed-fund money for TRF/remittance breakdowns."""
 
     POST_2025 = "post_2025"
-    PRE_2025 = "pre_2025"
+    PRE_2025_REMITTANCE = "pre_2025_remittance"
+    PRE_2025_ARISING = "pre_2025_arising"
     TRF_CAPITAL = "trf_capital"
 
 
 _PERIOD_ORDER: Final[dict[Period, int]] = {
     Period.POST_2025: 0,
-    Period.PRE_2025: 1,
-    Period.TRF_CAPITAL: 2,
+    Period.PRE_2025_REMITTANCE: 1,
+    Period.PRE_2025_ARISING: 2,
+    Period.TRF_CAPITAL: 3,
 }
 
 
-def get_period(tax_year: int) -> Period:
-    """Classify a bucket's tax_year into pre-2025 / 2025-and-later / TRF Capital."""
+def get_period(tax_year: int, tax_filings=None) -> Period:
+    """Classify a bucket's tax_year.
+
+    Pre-2025 years are split by filing basis: remittance basis years are TRF-eligible,
+    arising basis years are already UK-taxed so TRF buys nothing on them.
+    """
     if tax_year == TRF_CAPITAL_TAX_YEAR:
         return Period.TRF_CAPITAL
-    return Period.POST_2025 if tax_year >= 2025 else Period.PRE_2025
+    if tax_year >= 2025:
+        return Period.POST_2025
+    if tax_filings is not None:
+        basis = tax_filings.get(tax_year)
+        if basis is not None and basis.value:  # TaxFilingBasis.REMITTANCE.value == 1
+            return Period.PRE_2025_REMITTANCE
+    return Period.PRE_2025_ARISING
+
+
+_CENT: Final = Decimal("0.01")
 
 
 class MixedFundComposition:
@@ -328,10 +343,13 @@ class MixedFundComposition:
 
     def add_money(self, tax_year: int, category: MixedFundMoneyCategory, amount: Decimal, tax_amount=None) \
         -> tuple[dict[int, dict[MixedFundMoneyCategory, Decimal]], dict[int, dict[MixedFundMoneyCategory, Decimal]]]:
-        """Money is added in the relevant category bucket"""
+        """Money is added in the relevant category bucket, rounded to the nearest cent."""
 
+        amount = Decimal(amount).quantize(_CENT, rounding=ROUND_HALF_UP)
         if amount < 0:
             raise ValueError("Cannot add negative amount to a mixed fund")
+        if tax_amount is not None:
+            tax_amount = Decimal(tax_amount).quantize(_CENT, rounding=ROUND_HALF_UP)
         if tax_amount and tax_amount < 0:
             raise ValueError("Cannot add negative tax amount to a mixed fund")
         self.buckets[tax_year][category] += amount
@@ -351,6 +369,9 @@ class MixedFundComposition:
         -> tuple[dict[int, dict[MixedFundMoneyCategory, Decimal]], dict[int, dict[MixedFundMoneyCategory, Decimal]]]:
         """Money is removed from the relevant category bucket. Inverse of add_money."""
 
+        amount = Decimal(amount).quantize(_CENT, rounding=ROUND_DOWN)
+        if tax_amount is not None:
+            tax_amount = Decimal(tax_amount).quantize(_CENT, rounding=ROUND_DOWN)
         if amount < 0:
             raise ValueError("Cannot remove negative amount from a mixed fund")
         if tax_amount and tax_amount < 0:
@@ -386,32 +407,62 @@ class MixedFundComposition:
         )
 
     def withdraw_money_prorated(self, withdrawal: Decimal) -> tuple[dict[int, dict[MixedFundMoneyCategory, Decimal]], dict[int, dict[MixedFundMoneyCategory, Decimal]]]:
-        """Money is removed prorated if destination is overseas"""
+        """Money is removed prorated across all buckets for overseas transfers.
+
+        Each bucket's share is rounded DOWN to the cent; remainder pennies are
+        assigned one at a time to the buckets with the smallest balance so that
+        smaller buckets are extinguished first.
+        """
+        withdrawal = Decimal(withdrawal).quantize(_CENT, rounding=ROUND_HALF_UP)
         total = self.get_total_amount()
-        withdrawals =  defaultdict(lambda: defaultdict(Decimal))
-        tax_withdrawals = defaultdict(lambda: defaultdict(Decimal))
+        withdrawals: defaultdict = defaultdict(lambda: defaultdict(Decimal))
+        tax_withdrawals: defaultdict = defaultdict(lambda: defaultdict(Decimal))
 
         if total < withdrawal:
             raise ValueError("Cannot withdraw amount from mixed fund higher than total value")
         if withdrawal < 0:
             raise ValueError("Cannot withdraw negative amount from mixed fund")
 
-        for tax_year in self.buckets.keys():
-            for category in MixedFundMoneyCategory:
-                amount = self.buckets[tax_year][category]
-                tax_amount = self.tax_buckets[tax_year][category]
-                if amount:
-                    self.buckets[tax_year][category] -= amount * withdrawal / total
-                    withdrawals[tax_year][category] = -amount * withdrawal / total
-                if tax_amount:
-                    tax_rate = tax_amount / amount
-                    self.tax_buckets[tax_year][category] -= amount * withdrawal / total * tax_rate
-                    tax_withdrawals[tax_year][category] = -amount * withdrawal / total * tax_rate
+        # Collect non-empty buckets and calculate each bucket's prorated share rounded down.
+        bucket_keys = [
+            (ty, cat)
+            for ty in self.buckets
+            for cat in MixedFundMoneyCategory
+            if self.buckets[ty][cat]
+        ]
+        shares: dict[tuple[int, MixedFundMoneyCategory], Decimal] = {
+            k: (self.buckets[k[0]][k[1]] * withdrawal / total).quantize(_CENT, rounding=ROUND_DOWN)
+            for k in bucket_keys
+        }
+
+        # Assign remainder pennies to the smallest-balance buckets first.
+        remainder = withdrawal - sum(shares.values())
+        for k in sorted(bucket_keys, key=lambda k: self.buckets[k[0]][k[1]]):
+            if remainder < _CENT:
+                break
+            if shares[k] + _CENT <= self.buckets[k[0]][k[1]]:
+                shares[k] += _CENT
+                remainder -= _CENT
+
+        # Apply withdrawals and proportional tax credits.
+        for (ty, cat), share in shares.items():
+            if not share:
+                continue
+            amount = self.buckets[ty][cat]
+            tax_amount = self.tax_buckets[ty][cat]
+            self.buckets[ty][cat] -= share
+            withdrawals[ty][cat] = -share
+            if tax_amount:
+                tax_share = (share * tax_amount / amount).quantize(_CENT, rounding=ROUND_DOWN)
+                self.tax_buckets[ty][cat] -= tax_share
+                tax_withdrawals[ty][cat] = -tax_share
+
         return withdrawals, tax_withdrawals
 
     def withdraw_money_buckets_order(self, withdrawal: Decimal) -> tuple[dict[int, dict[MixedFundMoneyCategory, Decimal]], dict[int, dict[MixedFundMoneyCategory, Decimal]]]:
         """Money is removed following the buckets' order if destination is UK"""
 
+        withdrawal = Decimal(withdrawal).quantize(_CENT, rounding=ROUND_HALF_UP)
         total = self.get_total_amount()
         withdrawals =  defaultdict(lambda: defaultdict(Decimal))
         tax_withdrawals = defaultdict(lambda: defaultdict(Decimal))
@@ -425,13 +476,14 @@ class MixedFundComposition:
             tax_year, category = self.get_next_none_empty_bucket()
             amount = self.buckets[tax_year][category]
             tax_amount = self.tax_buckets[tax_year][category]
-            self.buckets[tax_year][category] -= min(amount, withdrawal)
-            withdrawals[tax_year][category] = -min(amount, withdrawal)
-            withdrawal -= min(amount, withdrawal)
+            taken = min(amount, withdrawal)
+            self.buckets[tax_year][category] -= taken
+            withdrawals[tax_year][category] = -taken
+            withdrawal -= taken
             if tax_amount:
-                tax_rate = tax_amount / amount
-                self.tax_buckets[tax_year][category] -= min(amount, withdrawal) * tax_rate
-                tax_withdrawals[tax_year][category] = -min(amount, withdrawal) * tax_rate
+                tax_taken = (taken * tax_amount / amount).quantize(_CENT, rounding=ROUND_DOWN)
+                self.tax_buckets[tax_year][category] -= tax_taken
+                tax_withdrawals[tax_year][category] = -tax_taken
 
         return withdrawals, tax_withdrawals
 
@@ -815,6 +867,8 @@ class CapitalGainsReport:
     total_foreign_interest: Decimal
     show_unrealized_gains: bool
     mixed_funds_log: dict
+    trf_declarations: list = field(default_factory=list)
+    tax_filings: object = field(default=None, repr=False)
     mixed_funds_recap_log: dict[str, list[MixedFundEntry]] = field(init=False)
     mixed_funds_pre_post_2025_columns: dict[
         str, list[tuple[Period, MixedFundMoneyCategory]]
@@ -858,7 +912,7 @@ class CapitalGainsReport:
             for entry in mixed_fund_log:
                 composition = entry.composition
                 for (tax_year, category, amount) in composition:
-                    period = get_period(tax_year)
+                    period = get_period(tax_year, self.tax_filings)
                     if amount and (period, category) not in pre_post_2025_columns:
                         pre_post_2025_columns.append((period, category))
                     if amount and (tax_year, category) not in columns:
@@ -989,6 +1043,7 @@ class CapitalGainsReport:
         pre_2025: bool | None = None,
         category: MixedFundMoneyCategory | None = None,
         nature: RemittedIncomeType | None = None,
+        period: Period | None = None,
     ) -> Decimal:
         """Sum movement amounts across transfer-out entries, with optional filters.
 
@@ -1009,6 +1064,8 @@ class CapitalGainsReport:
                 continue
             if pre_2025 is not None and (tax_year < 2025) != pre_2025:
                 continue
+            if period is not None and get_period(tax_year, self.tax_filings) != period:
+                continue
             if category is not None and cat != category:
                 continue
             if nature is not None and _CATEGORY_NATURE.get(cat) != nature:
@@ -1025,6 +1082,7 @@ class CapitalGainsReport:
         pre_2025: bool | None = None,
         category: MixedFundMoneyCategory | None = None,
         nature: RemittedIncomeType | None = None,
+        period: Period | None = None,
     ) -> tuple[Decimal, Decimal]:
         """Like _sum_transfer_out but also accumulates foreign tax. Returns (amount, foreign_tax), both negative."""
         total = Decimal(0)
@@ -1039,6 +1097,8 @@ class CapitalGainsReport:
             if pre_2025 is not None and tax_year == TRF_CAPITAL_TAX_YEAR:
                 continue
             if pre_2025 is not None and (tax_year < 2025) != pre_2025:
+                continue
+            if period is not None and get_period(tax_year, self.tax_filings) != period:
                 continue
             if category is not None and cat != category:
                 continue
@@ -1183,6 +1243,7 @@ class CapitalGainsReport:
         has_foreign_tax: bool | None = None,
         pre_2025: bool | None = None,
         nature: RemittedIncomeType | None = None,
+        period: Period | None = None,
     ) -> dict[MixedFundMoneyCategory, tuple[Decimal, Decimal]]:
         """Per-category (amount, foreign_tax) breakdown of transfer-out movements matching the given filters.
 
@@ -1199,6 +1260,7 @@ class CapitalGainsReport:
                 pre_2025=pre_2025,
                 category=cat,
                 nature=nature,
+                period=period,
             )
             if amount or tax:
                 result[cat] = (-amount, -tax)
@@ -1212,6 +1274,7 @@ class CapitalGainsReport:
         has_foreign_tax: bool | None = None,
         pre_2025: bool | None = None,
         nature: RemittedIncomeType | None = None,
+        period: Period | None = None,
     ) -> dict[MixedFundMoneyCategory, Decimal]:
         """Per-category breakdown of transfer-out amounts matching the given filters. See breakdown_by_category_with_tax."""
         return {
@@ -1223,8 +1286,17 @@ class CapitalGainsReport:
                 has_foreign_tax=has_foreign_tax,
                 pre_2025=pre_2025,
                 nature=nature,
+                period=period,
             ).items()
         }
+
+    def remitted_by_period(self, broker: str, period: Period) -> Decimal:
+        """Total remitted to the UK drawn from a specific Period bucket group."""
+        return -self._sum_transfer_out(broker, destination=Destination.UK, period=period)
+
+    def transferred_overseas_by_period(self, broker: str, period: Period) -> Decimal:
+        """Total transferred overseas drawn from a specific Period bucket group."""
+        return -self._sum_transfer_out(broker, destination=Destination.OVERSEAS, period=period)
 
     def remitted_by_category(self, broker: str | None = None) -> dict[MixedFundMoneyCategory, Decimal]:
         """Total remitted to the UK, broken down by category."""

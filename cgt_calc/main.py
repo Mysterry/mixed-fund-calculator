@@ -544,6 +544,9 @@ class CapitalGainsCalculator:
         interests: dict[tuple[str, str], Decimal] = defaultdict(Decimal)
         total_disposal_proceeds = Decimal(0)
         balance_history: list[Decimal] = []
+        portfolio_at_tax_year_end: dict[str, Position] = {}
+        balance_at_tax_year_end: dict[tuple[str, str], Decimal] = {}
+        last_transaction_date = None
 
         for transaction in transactions:
             self.isin_converter.add_from_transaction(transaction)
@@ -682,6 +685,12 @@ class CapitalGainsCalculator:
                 raise InvalidTransactionError(
                     transaction, f"Action not processed({transaction.action})"
                 )
+            last_transaction_date = transaction.date
+            if transaction.date <= self.tax_year_end_date:
+                portfolio_at_tax_year_end = {
+                    k: Position(v.quantity, v.amount) for k, v in self.portfolio.items()
+                }
+                balance_at_tax_year_end = dict(balance)
             balance_history.append(new_balance)
             if self.balance_check and new_balance < 0:
                 msg = f"Reached a negative balance({new_balance})"
@@ -705,7 +714,8 @@ class CapitalGainsCalculator:
             balance[(transaction.broker, transaction.currency)] = new_balance
 
         self.first_pass_report(
-            balance, dividends, dividends_tax, interests, total_disposal_proceeds
+            balance, dividends, dividends_tax, interests, total_disposal_proceeds,
+            portfolio_at_tax_year_end, balance_at_tax_year_end, last_transaction_date,
         )
 
     def preprocess_mixed_fund(self, broker: str) -> None:
@@ -833,26 +843,39 @@ class CapitalGainsCalculator:
         dividends_tax: dict[tuple[str, str], Decimal],
         interests: dict[tuple[str, str], Decimal],
         total_disposal_proceeds: Decimal,
+        portfolio_at_tax_year_end: dict[str, "Position"],
+        balance_at_tax_year_end: dict[tuple[str, str], Decimal],
+        last_transaction_date: "datetime.date | None",
     ) -> None:
         """Print the results of the first pass."""
         print("First pass completed")
-        print("Final portfolio:")
-        for stock, position in self.portfolio.items():
-            print(f"  {stock}: {position}")
-        print("Final balance:")
-        for (broker, currency), amount in balance.items():
+        print(f"--- Tax year {self.tax_year}/{self.tax_year + 1} ({self.tax_year_start_date} to {self.tax_year_end_date}) ---")
+        print(f"Portfolio at {self.tax_year_end_date}:")
+        for stock, position in portfolio_at_tax_year_end.items():
+            if position.quantity:
+                print(f"  {stock}: {position}")
+        print(f"Cash balance at {self.tax_year_end_date}:")
+        for (broker, currency), amount in balance_at_tax_year_end.items():
             print(f"  {broker}: {round_decimal(amount, 2)} ({currency})")
+        print(f"Disposal proceeds for {self.tax_year}/{self.tax_year + 1}: £{round_decimal(total_disposal_proceeds, 2)}")
         if dividends:
-            print("Dividends:")
+            print(f"Dividends for {self.tax_year}/{self.tax_year + 1}:")
             for (symbol, currency), amount in dividends.items():
                 tax = dividends_tax[(symbol, currency)]
                 tax_str = f", excluding {-tax} taxed at source" if tax < 0 else ""
                 print(f"  {symbol}: {round_decimal(amount, 2)}{tax_str} ({currency})")
         if interests:
-            print("Interests:")
+            print(f"Interests for {self.tax_year}/{self.tax_year + 1}:")
             for (broker, currency), amount in interests.items():
                 print(f"  {broker}: {round_decimal(amount, 2)} ({currency})")
-        print(f"Disposal proceeds: £{round_decimal(total_disposal_proceeds, 2)}")
+        print(f"--- Current state (as of {last_transaction_date}) ---")
+        print("Current portfolio:")
+        for stock, position in self.portfolio.items():
+            if position.quantity:
+                print(f"  {stock}: {position}")
+        print("Current cash balance:")
+        for (broker, currency), amount in balance.items():
+            print(f"  {broker}: {round_decimal(amount, 2)} ({currency})")
         print()
 
     def process_acquisition(
@@ -1638,6 +1661,7 @@ class CapitalGainsCalculator:
                             broker,
                             composition.get_list_representation_buckets(),
                             existing,
+                            self.tax_filings,
                         )
                     else:
                         allocations = existing or {}
@@ -1795,10 +1819,43 @@ class CapitalGainsCalculator:
                                 and trf_active[broker].get(transfer_year, False)
                             ):
                                 # Annualized basis (RDRM75500): defer all transfers to year-end flush.
+                                dest_str = "overseas" if transaction.destination == Destination.OVERSEAS else "UK"
                                 if transaction.destination == Destination.OVERSEAS:
                                     pending_overseas_transfer[broker][transfer_year] += withdrawal
                                 else:
                                     pending_uk_remittance[broker][transfer_year] += withdrawal
+                                uk_running = pending_uk_remittance[broker][transfer_year]
+                                overseas_running = pending_overseas_transfer[broker][transfer_year]
+                                trf_years_str = "%s/%s to %s/%s" % (
+                                    TRF_RELEVANT_TAX_YEARS[0], TRF_RELEVANT_TAX_YEARS[0] + 1,
+                                    TRF_RELEVANT_TAX_YEARS[-1], TRF_RELEVANT_TAX_YEARS[-1] + 1,
+                                )
+                                message = (
+                                    "Transfer of £%s to %s on %s in %s — deferred, not processed now. "
+                                    "TRF Capital is present so annualized basis applies for tax year %s/%s "
+                                    "(RDRM75500; TRF active %s). "
+                                    "Running totals for %s/%s: £%s remitted to UK, £%s transferred overseas."
+                                ) % (
+                                    round_decimal(withdrawal, 2),
+                                    dest_str,
+                                    date_index,
+                                    broker,
+                                    transfer_year, transfer_year + 1,
+                                    trf_years_str,
+                                    transfer_year, transfer_year + 1,
+                                    round_decimal(uk_running, 2),
+                                    round_decimal(overseas_running, 2),
+                                )
+                                LOGGER.debug(message)
+                                if date_index >= tax_year_start_index:
+                                    mixed_fund_log.append(
+                                        MixedFundEntry(
+                                            message=message,
+                                            movement={},
+                                            tax_movement={},
+                                            mixed_fund_composition=composition,
+                                        )
+                                    )
                             elif transaction.destination == Destination.OVERSEAS:
                                 # Transfer out to overseas: pro-rata across all buckets (RDRM35420).
                                 movement, tax_movement = composition.withdraw_money_prorated(withdrawal)
@@ -2124,6 +2181,8 @@ class CapitalGainsCalculator:
         allowance = CAPITAL_GAIN_ALLOWANCES.get(self.tax_year)
         dividend_allowance = DIVIDEND_ALLOWANCES.get(self.tax_year)
 
+        trf_declarations = self.trf_handler.get_declarations(self.tax_year)
+
         return CapitalGainsReport(
             self.tax_year,
             [
@@ -2143,7 +2202,9 @@ class CapitalGainsCalculator:
             round_decimal(self.total_uk_interest, 2),
             round_decimal(self.total_foreign_interest, 2),
             show_unrealized_gains=self.calc_unrealized_gains,
-            mixed_funds_log=mixed_funds_log
+            mixed_funds_log=mixed_funds_log,
+            trf_declarations=trf_declarations,
+            tax_filings=self.tax_filings,
         )
 
     def calculate_mixed_fund_states(self) -> MixedFundsReport:

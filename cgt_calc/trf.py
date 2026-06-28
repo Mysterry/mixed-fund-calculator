@@ -121,6 +121,14 @@ class TRFHandler:
                 amount=Decimal(0),
             ))
 
+    def get_declarations(self, year: int) -> list[_TRFRow]:
+        """Return all non-declined TRF rows for a declaration tax year, ordered by broker / source year / category."""
+        rows = [r for r in self.rows if r.declaration_tax_year == year and r.category != _DECLINED_SENTINEL]
+        return sorted(
+            rows,
+            key=lambda r: (r.broker, r.source_tax_year, MixedFundMoneyCategory[r.category].value),
+        )
+
     def get_applicable_allocations(
         self, year: int, broker: str
     ) -> dict[tuple[int, MixedFundMoneyCategory], Decimal] | None:
@@ -147,16 +155,29 @@ class TRFHandler:
         broker: str,
         available_buckets: list[tuple[int, MixedFundMoneyCategory, Decimal]],
         existing: dict[tuple[int, MixedFundMoneyCategory], Decimal] | None,
+        tax_filings=None,
     ) -> dict[tuple[int, MixedFundMoneyCategory], Decimal]:
         """Interactively declare (or reuse/overwrite) a TRF declaration.
 
         Only called for year in TRF_RELEVANT_TAX_YEARS and year == self.tax_year.
         Returns the final allocations dict (possibly empty).
+        Pre-2025 arising-basis years are excluded: gains from those years were already
+        UK-taxed when they arose, so TRF buys nothing on them.
         """
+        _already_uk_taxed = {MixedFundMoneyCategory.EMPLOYMENT_INCOME}
         eligible = [
             (ty, cat, amt)
             for ty, cat, amt in available_buckets
-            if ty < 2025 and amt
+            if ty < 2025
+            and amt
+            and cat not in _already_uk_taxed
+            and (
+                tax_filings is None
+                or (
+                    tax_filings.get(ty) is not None
+                    and tax_filings.get(ty).value  # TaxFilingBasis.REMITTANCE.value == 1
+                )
+            )
         ]
 
         if not self.prompt:
@@ -187,15 +208,20 @@ class TRFHandler:
             f"(balances as of start of {year}/{year + 1}, after any prior TRF declarations):"
         )
         allocations: dict[tuple[int, MixedFundMoneyCategory], Decimal] = {}
-        for tax_year, category, amount in eligible:
+        eligible_sorted = sorted(eligible, key=lambda x: (x[0], x[1].value))
+        for tax_year, category, raw_amount in eligible_sorted:
+            amount = raw_amount.quantize(Decimal("0.01"), rounding=decimal.ROUND_DOWN)
             while True:
                 raw = input(
                     f"  {tax_year}/{tax_year + 1} {category.name} "
-                    f"(available £{amount}, 0 to skip): "
+                    f"(available £{amount}, 0 to skip, 'all' for full amount): "
                 ).strip() or "0"
+                if raw.lower() == "all":
+                    value = amount
+                    break
                 try:
-                    value = Decimal(raw)
-                except decimal.InvalidOperation:
+                    value = Decimal(raw).quantize(Decimal("0.01"), rounding=decimal.ROUND_HALF_UP)
+                except (decimal.InvalidOperation, decimal.DecimalException):
                     print("  Not a valid amount.")
                     continue
                 if value < 0 or value > amount:
@@ -204,6 +230,9 @@ class TRFHandler:
                 break
             if value:
                 allocations[(tax_year, category)] = value
+            running_total = sum(allocations.values())
+            if running_total:
+                print(f"  Running total declared for {broker}: £{running_total}")
 
         self._upsert_rows(year, broker, allocations)
         self._write_trf_file()

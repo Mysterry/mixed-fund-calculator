@@ -132,7 +132,7 @@ def test_mixed_fund_report_exposes_type_only_columns_and_recap() -> None:
     assert report.mixed_funds_pre_post_2025_columns["Schwab"] == [
         (Period.POST_2025, MixedFundMoneyCategory.EMPLOYMENT_INCOME),
         (Period.POST_2025, MixedFundMoneyCategory.RELEVANT_FOREIGN_INCOME),
-        (Period.PRE_2025, MixedFundMoneyCategory.EMPLOYMENT_INCOME),
+        (Period.PRE_2025_ARISING, MixedFundMoneyCategory.EMPLOYMENT_INCOME),
     ]
     assert report.mixed_funds_type_columns["Schwab"] == [
         MixedFundMoneyCategory.EMPLOYMENT_INCOME,
@@ -196,7 +196,7 @@ def test_mixed_fund_pre_post_2025_columns_handle_pre_2025_years() -> None:
     )
 
     assert report.mixed_funds_pre_post_2025_columns["Schwab"] == [
-        (Period.PRE_2025, MixedFundMoneyCategory.EMPLOYMENT_INCOME)
+        (Period.PRE_2025_ARISING, MixedFundMoneyCategory.EMPLOYMENT_INCOME)
     ]
 
 

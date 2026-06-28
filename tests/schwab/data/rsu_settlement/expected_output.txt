@@ -2,11 +2,17 @@ Parsing tests\schwab\data\rsu_settlement\awards.csv...
 Parsing tests\schwab\data\rsu_settlement\transactions.csv...
 Found 4 broker transactions
 First pass completed
-Final portfolio:
+--- Tax year 2023/2024 (2023-04-06 to 2024-04-05) ---
+Portfolio at 2024-04-05:
   BAR: 300.00
-Final balance:
+Cash balance at 2024-04-05:
+  Charles Schwab: 0.00 (USD)
+Disposal proceeds for 2023/2024: £21783.33
+--- Current state (as of 2023-08-18) ---
+Current portfolio:
+  BAR: 300.00
+Current cash balance:
   Charles Schwab: 28068.66 (USD)
-Disposal proceeds: £21783.33
 
 Second pass completed
 Portfolio at the end of 2023/2024 tax year:
