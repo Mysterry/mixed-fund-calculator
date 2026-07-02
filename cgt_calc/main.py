@@ -224,6 +224,10 @@ class CapitalGainsCalculator:
         self.disposal_list: HmrcTransactionLog = {}
         self.bnb_list: HmrcTransactionLog = {}
         self.split_list: dict[tuple[str, datetime.date], Decimal] = {}
+        # Maps (symbol, date) → new_quantity for reverse splits.
+        # Reverse splits are TCGA 1992 s.126-132 reorganisations: no disposal event,
+        # cost basis preserved in full for the reduced share count.
+        self.reverse_split_list: dict[tuple[str, datetime.date], Decimal] = {}
 
         self.dividend_list: ForeignAmountLog = defaultdict(ForeignCurrencyAmount)
         self.dividend_tax_list: ForeignAmountLog = defaultdict(ForeignCurrencyAmount)
@@ -623,24 +627,24 @@ class CapitalGainsCalculator:
             elif transaction.action in [
                     ActionType.STOCK_REVERSE_SPLIT,
                 ]:
-                # Assumes a reverse split where fractional shares are awarded to round to next whole share
-                # Assumes a bookkeeping transaction with -N transaction & a positive transaction CEILING(N/30)
-
                 if transaction.quantity < 0:
-                    # This is the bookkeeping transaction
+                    # The negative-quantity leg (old CUSIP going away) is a no-op.
                     pass
                 else:
+                    # Positive-quantity leg: N old shares → M new shares (M < N).
+                    # TCGA 1992 s.126-132: share consolidations are reorganisations,
+                    # not disposals. The full S104 cost basis stays with the new shares;
+                    # only the share count changes. Record the new quantity for the
+                    # second pass and shrink the first-pass portfolio accordingly.
                     new_quantity = get_quantity_or_fail(transaction)
                     symbol = get_symbol_or_fail(transaction)
                     holding_quantity = self.portfolio[symbol].quantity
                     multiplier = new_quantity / holding_quantity
                     self.split_list[(symbol, transaction.date)] = multiplier
-
-                    disposed_quantity = holding_quantity - new_quantity
-                    transaction.quantity = disposed_quantity
-                    transaction.price = 0
-                    transaction.amount = 0
-                    self.add_disposal(transaction)
+                    self.reverse_split_list[(symbol, transaction.date)] = new_quantity
+                    self.portfolio[symbol] = Position(
+                        new_quantity, self.portfolio[symbol].amount
+                    )
 
 
             elif transaction.action in [ActionType.DIVIDEND, ActionType.CAPITAL_GAIN]:
@@ -1509,6 +1513,13 @@ class CapitalGainsCalculator:
                         calculation_log[date_index][f"buy${symbol}"] = (
                             calculation_entries
                         )
+            # Apply reverse split pool adjustments (TCGA 1992 s.126-132 reorganisations).
+            # Shrink the S104 quantity to the post-consolidation share count while
+            # preserving the full cost basis. Runs after acquisitions (so the pool
+            # exists) and before disposals (so any same-date sell sees the correct qty).
+            for (sym, split_date), new_qty in self.reverse_split_list.items():
+                if split_date == date_index and sym in self.portfolio:
+                    self.portfolio[sym] = Position(new_qty, self.portfolio[sym].amount)
             if date_index in self.disposal_list:
                 for symbol in self.disposal_list[date_index]:
                     (
