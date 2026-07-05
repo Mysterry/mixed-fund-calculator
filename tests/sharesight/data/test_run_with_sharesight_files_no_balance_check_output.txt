@@ -8,8 +8,8 @@ Portfolio at 2021-04-05:
   NASDAQ:FOO: 5.00
   FundUK:FUND1: 50.00
 Cash balance at 2021-04-05:
-  Sharesight: -17857.31 (GBP)
-  Sharesight: 7474.30 (USD)
+  Sharesight: -17854.31 (GBP) [£-17854.31]
+  Sharesight: 7474.30 (USD) [£5447.34]
 Disposal proceeds for 2020/2021: £12999.61
 Dividends for 2020/2021:
   FOO.NASDAQ: 5.00, excluding 0.75 taxed at source (USD)
@@ -20,8 +20,8 @@ Current portfolio:
   NASDAQ:FOO: 5.00
   FundUK:FUND1: 50.00
 Current cash balance:
-  Sharesight: -17854.31 (GBP)
-  Sharesight: 7474.30 (USD)
+  Sharesight: -17854.31 (GBP) [£-17854.31]
+  Sharesight: 7474.30 (USD) [£5678.27]
 
 Second pass completed
 Portfolio at the end of 2020/2021 tax year:

@@ -9,7 +9,12 @@ from dataclasses import dataclass
 from decimal import Decimal
 from typing import TYPE_CHECKING, Final
 
-from .model import MixedFundMoneyCategory, TRF_RELEVANT_TAX_YEARS
+from .model import (
+    ALREADY_UK_TAXED_CATEGORIES,
+    MixedFundMoneyCategory,
+    TRF_CAPITAL_TAX_YEAR,
+    TRF_RELEVANT_TAX_YEARS,
+)
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -122,11 +127,16 @@ class TRFHandler:
             ))
 
     def get_declarations(self, year: int) -> list[_TRFRow]:
-        """Return all non-declined TRF rows for a declaration tax year, ordered by broker / source year / category."""
+        """Return all non-declined TRF rows for a declaration tax year.
+
+        Ordered by broker, then by source year descending / category, matching
+        the priority order used by withdraw_money_buckets_order and the
+        declaration prompt.
+        """
         rows = [r for r in self.rows if r.declaration_tax_year == year and r.category != _DECLINED_SENTINEL]
         return sorted(
             rows,
-            key=lambda r: (r.broker, r.source_tax_year, MixedFundMoneyCategory[r.category].value),
+            key=lambda r: (r.broker, -r.source_tax_year, MixedFundMoneyCategory[r.category].value),
         )
 
     def get_applicable_allocations(
@@ -164,20 +174,21 @@ class TRFHandler:
         Pre-2025 arising-basis years are excluded: gains from those years were already
         UK-taxed when they arose, so TRF buys nothing on them.
         """
-        _already_uk_taxed = {MixedFundMoneyCategory.EMPLOYMENT_INCOME}
-        eligible = [
-            (ty, cat, amt)
-            for ty, cat, amt in available_buckets
-            if ty < 2025
-            and amt
-            and cat not in _already_uk_taxed
-            and (
-                tax_filings is None
-                or (
-                    tax_filings.get(ty) is not None
-                    and tax_filings.get(ty).value  # TaxFilingBasis.REMITTANCE.value == 1
+        def is_eligible(tax_year: int, category: MixedFundMoneyCategory) -> bool:
+            return (
+                tax_year < 2025
+                and category not in ALREADY_UK_TAXED_CATEGORIES
+                and (
+                    tax_filings is None
+                    or (
+                        tax_filings.get(tax_year) is not None
+                        and tax_filings.get(tax_year).value  # TaxFilingBasis.REMITTANCE.value == 1
+                    )
                 )
             )
+
+        eligible = [
+            (ty, cat, amt) for ty, cat, amt in available_buckets if amt and is_eligible(ty, cat)
         ]
 
         if not self.prompt:
@@ -204,35 +215,56 @@ class TRFHandler:
             return {}
 
         print(
-            f"Available pre-2025 buckets for {broker} "
+            f"All buckets for {broker} "
             f"(balances as of start of {year}/{year + 1}, after any prior TRF declarations):"
         )
         allocations: dict[tuple[int, MixedFundMoneyCategory], Decimal] = {}
-        eligible_sorted = sorted(eligible, key=lambda x: (x[0], x[1].value))
-        for tax_year, category, raw_amount in eligible_sorted:
+        covered_total = Decimal("0")
+        # available_buckets already comes in the priority order used by
+        # withdraw_money_buckets_order: most recent tax year first, then
+        # categories in enum order.
+        for tax_year, category, raw_amount in available_buckets:
             amount = raw_amount.quantize(Decimal("0.01"), rounding=decimal.ROUND_DOWN)
-            while True:
-                raw = input(
-                    f"  {tax_year}/{tax_year + 1} {category.name} "
-                    f"(available £{amount}, 0 to skip, 'all' for full amount): "
-                ).strip() or "0"
-                if raw.lower() == "all":
-                    value = amount
+            label = (
+                "TRF Capital"
+                if tax_year == TRF_CAPITAL_TAX_YEAR
+                else f"{tax_year}/{tax_year + 1}"
+            )
+            if not is_eligible(tax_year, category):
+                while True:
+                    raw = input(
+                        f"  {label} {category.name} (£{amount}): not eligible for TRF, "
+                        "press Enter to continue: "
+                    )
+                    if raw.strip() == "":
+                        break
+                    print("  Not eligible for TRF, just press Enter.")
+            else:
+                while True:
+                    raw = input(
+                        f"  {label} {category.name} "
+                        f"(available £{amount}, 0 to skip, 'all' for full amount): "
+                    ).strip() or "0"
+                    if raw.lower() == "all":
+                        value = amount
+                        break
+                    try:
+                        value = Decimal(raw).quantize(Decimal("0.01"), rounding=decimal.ROUND_HALF_UP)
+                    except (decimal.InvalidOperation, decimal.DecimalException):
+                        print("  Not a valid amount.")
+                        continue
+                    if value < 0 or value > amount:
+                        print(f"  Must be between 0 and £{amount}.")
+                        continue
                     break
-                try:
-                    value = Decimal(raw).quantize(Decimal("0.01"), rounding=decimal.ROUND_HALF_UP)
-                except (decimal.InvalidOperation, decimal.DecimalException):
-                    print("  Not a valid amount.")
-                    continue
-                if value < 0 or value > amount:
-                    print(f"  Must be between 0 and £{amount}.")
-                    continue
-                break
-            if value:
-                allocations[(tax_year, category)] = value
+                if value:
+                    allocations[(tax_year, category)] = value
+            covered_total += amount
             running_total = sum(allocations.values())
-            if running_total:
-                print(f"  Running total declared for {broker}: £{running_total}")
+            print(
+                f"  Running total declared for {broker}: £{running_total} "
+                f"(of £{covered_total} covered so far)"
+            )
 
         self._upsert_rows(year, broker, allocations)
         self._write_trf_file()

@@ -6,13 +6,13 @@ First pass completed
 Portfolio at 2024-04-05:
   BAR: 300.00
 Cash balance at 2024-04-05:
-  Charles Schwab: 0.00 (USD)
+  Charles Schwab: 28068.66 (USD) [£22113.50]
 Disposal proceeds for 2023/2024: £21783.33
 --- Current state (as of 2023-08-18) ---
 Current portfolio:
   BAR: 300.00
 Current cash balance:
-  Charles Schwab: 28068.66 (USD)
+  Charles Schwab: 28068.66 (USD) [£21782.29]
 
 Second pass completed
 Portfolio at the end of 2023/2024 tax year:

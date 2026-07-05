@@ -4,12 +4,12 @@ First pass completed
 --- Tax year 2024/2025 (2024-04-06 to 2025-04-05) ---
 Portfolio at 2025-04-05:
 Cash balance at 2025-04-05:
-  Trading212: 3758.05 (GBP)
+  Trading212: 1758.05 (GBP) [£1758.05]
 Disposal proceeds for 2024/2025: £3143.21
 --- Current state (as of 2024-05-26) ---
 Current portfolio:
 Current cash balance:
-  Trading212: 1758.05 (GBP)
+  Trading212: 1758.05 (GBP) [£1758.05]
 
 Second pass completed
 Portfolio at the end of 2024/2025 tax year:

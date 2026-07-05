@@ -6,7 +6,7 @@ Portfolio at 2023-04-05:
   FOO: 1550.00
   BAR: 293.00
 Cash balance at 2023-04-05:
-  Vanguard: 423.59 (GBP)
+  Vanguard: 1423.59 (GBP) [£1423.59]
 Disposal proceeds for 2022/2023: £104.06
 Dividends for 2022/2023:
   FOO: 396.66 (GBP)
@@ -15,7 +15,7 @@ Current portfolio:
   FOO: 1550.00
   BAR: 293.00
 Current cash balance:
-  Vanguard: 1423.59 (GBP)
+  Vanguard: 1423.59 (GBP) [£1423.59]
 
 Second pass completed
 Portfolio at the end of 2022/2023 tax year:

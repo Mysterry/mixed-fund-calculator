@@ -6,7 +6,7 @@ Portfolio at 2024-04-05:
   GOOGL: 0.14
   NDAQ: 2.12
 Cash balance at 2024-04-05:
-  Freetrade: 6016.43 (GBP)
+  Freetrade: 8946.79 (GBP) [£8946.79]
 Disposal proceeds for 2023/2024: £2930.36
 Dividends for 2023/2024:
   NDAQ: 1.78 (GBP)
@@ -18,7 +18,7 @@ Current portfolio:
   GOOGL: 0.14
   NDAQ: 2.12
 Current cash balance:
-  Freetrade: 8946.79 (GBP)
+  Freetrade: 8946.79 (GBP) [£8946.79]
 
 Second pass completed
 Portfolio at the end of 2023/2024 tax year:

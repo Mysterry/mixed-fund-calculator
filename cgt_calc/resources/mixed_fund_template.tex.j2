@@ -42,9 +42,9 @@
   \BLOCK{ endif }
 \BLOCK{ endfor }
 \BLOCK{ set broker_narrative_width = (broker_narrative_chars.value + narrative_padding_chars) * narrative_char_width }
-\BLOCK{ set broker_pre_post_width = [report.mixed_funds_pre_post_2025_columns[broker]|length * total_column_width, broker_narrative_width]|max }
-\BLOCK{ set broker_detailed_width = [report.mixed_funds_columns[broker]|length * total_column_width, broker_narrative_width]|max }
-\BLOCK{ set broker_type_width = [report.mixed_funds_type_columns[broker]|length * total_column_width, broker_narrative_width]|max }
+\BLOCK{ set broker_pre_post_width = [(report.mixed_funds_pre_post_2025_columns[broker]|length + 1) * total_column_width, broker_narrative_width]|max }
+\BLOCK{ set broker_detailed_width = [(report.mixed_funds_columns[broker]|length + 1) * total_column_width, broker_narrative_width]|max }
+\BLOCK{ set broker_type_width = [(report.mixed_funds_type_columns[broker]|length + 1) * total_column_width, broker_narrative_width]|max }
 \BLOCK{ if broker_pre_post_width > ns_max.max_table_width }
   \BLOCK{ set ns_max.max_table_width = broker_pre_post_width }
 \BLOCK{ endif }
@@ -109,17 +109,17 @@ Mixed funds calculations for
   \BLOCK{ endif }
 \BLOCK{ endfor }
 \settowidth{\mixedfundnarrativewidth}{\VAR{ latex_safe(longest_message.value) }}
-\setlength{\mixedfundtablecontentwidth}{\dimexpr \mixedfundnumericcolwidth * \VAR{ columns|length }\relax}
+\setlength{\mixedfundtablecontentwidth}{\dimexpr \mixedfundnumericcolwidth * \VAR{ columns|length + 1 }\relax}
 \ifdim\mixedfundnarrativewidth>\mixedfundtablecontentwidth
   \setlength{\mixedfundtablecontentwidth}{\mixedfundnarrativewidth}
 \fi
-\setlength{\mixedfundcolcontentwidth}{\dimexpr (\mixedfundtablecontentwidth - 2\tabcolsep * \VAR{ columns|length } - \arrayrulewidth * (\VAR{ columns|length } + 1)) / \VAR{ columns|length }\relax}
-\begin{longtable}{|*{\VAR{ columns|length }}{>{\RaggedRight\arraybackslash}p{\mixedfundcolcontentwidth}|}}
+\setlength{\mixedfundcolcontentwidth}{\dimexpr (\mixedfundtablecontentwidth - 2\tabcolsep * \VAR{ columns|length + 1 } - \arrayrulewidth * (\VAR{ columns|length + 1 } + 1)) / \VAR{ columns|length + 1 }\relax}
+\begin{longtable}{|*{\VAR{ columns|length + 1 }}{>{\RaggedRight\arraybackslash}p{\mixedfundcolcontentwidth}|}}
 \hline
 \BLOCK{ if aggregate_by_category }
 \BLOCK{ for category in columns }
   \textbf{\VAR{ number_to_letter[category.value] }}\BLOCK{ if not loop.last } & \BLOCK{ endif }
-\BLOCK{ endfor } \\
+\BLOCK{ endfor } & \textbf{Total} \\
 \hline
 \BLOCK{ elif aggregate_by_pre_post_2025 }
 \BLOCK{ set ns = namespace(current_period=none, period_span=0, output=[]) }
@@ -137,11 +137,11 @@ Mixed funds calculations for
     \BLOCK{ set _ = ns.output.append('\\multicolumn{' ~ ns.period_span ~ '}{|c|}{\\textbf{' ~ period_label[ns.current_period] ~ '}}') }
   \BLOCK{ endif }
 \BLOCK{ endfor }
-\VAR{ ns.output | join(' & ') } \\
+\VAR{ ns.output | join(' & ') } & \multicolumn{1}{c|}{\textbf{Total}} \\
 \hline
 \BLOCK{ for _, category in columns }
   \textbf{\VAR{ number_to_letter[category.value] }}\BLOCK{ if not loop.last } & \BLOCK{ endif }
-\BLOCK{ endfor } \\
+\BLOCK{ endfor } & \textbf{Total} \\
 \hline
 \BLOCK{ else }
 \BLOCK{ set ns = namespace(current_year=none, year_span=0, output=[]) }
@@ -161,16 +161,16 @@ Mixed funds calculations for
     \BLOCK{ set _ = ns.output.append('\\multicolumn{' ~ ns.year_span ~ '}{|c|}{\\textbf{' ~ year_label ~ '}}') }
   \BLOCK{ endif }
 \BLOCK{ endfor }
-\VAR{ ns.output | join(' & ') } \\
+\VAR{ ns.output | join(' & ') } & \multicolumn{1}{c|}{\textbf{Total}} \\
 \hline
 \BLOCK{ for tax_year, category in columns }
   \textbf{\VAR{ number_to_letter[category.value] }}\BLOCK{ if not loop.last } & \BLOCK{ endif }
-\BLOCK{ endfor } \\
+\BLOCK{ endfor } & \textbf{Total} \\
 \hline
 \BLOCK{ endif }
 \endhead
 \BLOCK{ for entry in entries }
-\multicolumn{\VAR{ columns|length }}{|p{\mixedfundtablecontentwidth}|}{
+\multicolumn{\VAR{ columns|length + 1 }}{|p{\mixedfundtablecontentwidth}|}{
 \VAR{ latex_safe(entry.message) }
 \BLOCK{ if entry.movements }
 \begin{itemize}
@@ -204,10 +204,12 @@ Mixed funds calculations for
     \BLOCK{ endif }
   \BLOCK{ endfor }
 \BLOCK{ endif }
+\BLOCK{ set total_ns = namespace(value=Decimal(0)) }
 \BLOCK{ for col in columns }
   \BLOCK{ set value = comp.get(col, Decimal(0)) }
+  \BLOCK{ set total_ns.value = total_ns.value + value }
   \VAR{ "{:,}".format(round_decimal(value, 2)) if value != 0 else "" }\BLOCK{ if not loop.last } & \BLOCK{ endif }
-\BLOCK{ endfor } \\
+\BLOCK{ endfor } & \VAR{ "{:,}".format(round_decimal(total_ns.value, 2)) if total_ns.value != 0 else "" } \\
 \hline
 \BLOCK{ endfor }
 \end{longtable}
@@ -248,26 +250,26 @@ Mixed funds calculations for
 \begin{itemize}
   \item Income remitted: \GBP\VAR{ "{:,}".format(round_decimal(report.remitted_income(broker), 2))}
   \begin{itemize}
-    \item With UK income tax implication: \GBP\VAR{ "{:,}".format(round_decimal(report.remitted_income_tax_implication(broker), 2))}
+    \item With UK income tax implication due to remittance: \GBP\VAR{ "{:,}".format(round_decimal(report.remitted_income_tax_implication(broker), 2))}
     \begin{itemize}
       \item Without foreign tax relief: \GBP\VAR{ "{:,}".format(round_decimal(report.remitted_income_tax_implication_no_relief(broker), 2))}
       \VAR{ category_breakdown(report.breakdown_by_category(broker, destination=Destination.UK, nature=RemittedIncomeType.INCOME, uk_implication=RemittedIncomeType.INCOME, has_foreign_tax=False)) }
       \item With foreign tax relief: \GBP\VAR{ "{:,}".format(round_decimal(report.remitted_income_tax_implication_with_relief(broker)[0], 2))} -- foreign tax paid: \GBP\VAR{ "{:,}".format(round_decimal(report.remitted_income_tax_implication_with_relief(broker)[1], 2))}
       \VAR{ category_breakdown_with_tax(report.breakdown_by_category_with_tax(broker, destination=Destination.UK, nature=RemittedIncomeType.INCOME, uk_implication=RemittedIncomeType.INCOME, has_foreign_tax=True)) }
     \end{itemize}
-    \item Without UK tax implication: \GBP\VAR{ "{:,}".format(round_decimal(report.remitted_income_no_tax_implication(broker), 2))}
+    \item Without UK tax implication due to remittance (may still be taxable via another route, e.g. arising basis, PAYE or TRF): \GBP\VAR{ "{:,}".format(round_decimal(report.remitted_income_no_tax_implication(broker), 2))}
     \VAR{ category_breakdown(report.breakdown_by_category(broker, destination=Destination.UK, nature=RemittedIncomeType.INCOME, uk_implication=None)) }
   \end{itemize}
   \item Capital Gains remitted: \GBP\VAR{ "{:,}".format(round_decimal(report.remitted_gains(broker), 2))}
   \begin{itemize}
-    \item With UK capital gains tax implication: \GBP\VAR{ "{:,}".format(round_decimal(report.remitted_gains_tax_implication(broker), 2))}
+    \item With UK capital gains tax implication due to remittance: \GBP\VAR{ "{:,}".format(round_decimal(report.remitted_gains_tax_implication(broker), 2))}
     \begin{itemize}
       \item Without foreign tax relief: \GBP\VAR{ "{:,}".format(round_decimal(report.remitted_gains_tax_implication_no_relief(broker), 2))}
       \VAR{ category_breakdown(report.breakdown_by_category(broker, destination=Destination.UK, nature=RemittedIncomeType.CAPITAL_GAIN, uk_implication=RemittedIncomeType.CAPITAL_GAIN, has_foreign_tax=False)) }
       \item With foreign tax relief: \GBP\VAR{ "{:,}".format(round_decimal(report.remitted_gains_tax_implication_with_relief(broker)[0], 2))} -- foreign tax paid: \GBP\VAR{ "{:,}".format(round_decimal(report.remitted_gains_tax_implication_with_relief(broker)[1], 2))}
       \VAR{ category_breakdown_with_tax(report.breakdown_by_category_with_tax(broker, destination=Destination.UK, nature=RemittedIncomeType.CAPITAL_GAIN, uk_implication=RemittedIncomeType.CAPITAL_GAIN, has_foreign_tax=True)) }
     \end{itemize}
-    \item Without UK tax implication: \GBP\VAR{ "{:,}".format(round_decimal(report.remitted_gains_no_tax_implication(broker), 2))}
+    \item Without UK tax implication due to remittance (may still be taxable via another route, e.g. arising basis, PAYE or TRF): \GBP\VAR{ "{:,}".format(round_decimal(report.remitted_gains_no_tax_implication(broker), 2))}
     \VAR{ category_breakdown(report.breakdown_by_category(broker, destination=Destination.UK, nature=RemittedIncomeType.CAPITAL_GAIN, uk_implication=None)) }
   \end{itemize}
   \BLOCK{ for period in [Period.POST_2025, Period.PRE_2025_REMITTANCE, Period.PRE_2025_ARISING, Period.TRF_CAPITAL] }

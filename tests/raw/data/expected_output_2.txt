@@ -6,7 +6,7 @@ Portfolio at 2023-04-05:
   AMZN: 10.00
   META: 50.00
 Cash balance at 2023-04-05:
-  Unknown: 4804.95 (USD)
+  Unknown: 0.00 (USD) [£0.00]
 Disposal proceeds for 2022/2023: £8431.31
 Dividends for 2022/2023:
   META: 5.00 (USD)
@@ -15,7 +15,7 @@ Current portfolio:
   AMZN: 10.00
   META: 50.00
 Current cash balance:
-  Unknown: 0.00 (USD)
+  Unknown: 0.00 (USD) [£0.00]
 
 Second pass completed
 Portfolio at the end of 2022/2023 tax year:

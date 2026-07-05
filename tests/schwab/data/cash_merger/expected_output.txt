@@ -4,12 +4,12 @@ First pass completed
 --- Tax year 2020/2021 (2020-04-06 to 2021-04-05) ---
 Portfolio at 2021-04-05:
 Cash balance at 2021-04-05:
-  Charles Schwab: 0.00 (USD)
+  Charles Schwab: 1000.00 (USD) [£728.81]
 Disposal proceeds for 2020/2021: £711.69
 --- Current state (as of 2021-03-02) ---
 Current portfolio:
 Current cash balance:
-  Charles Schwab: 1000.00 (USD)
+  Charles Schwab: 1000.00 (USD) [£711.69]
 
 Second pass completed
 Portfolio at the end of 2020/2021 tax year:

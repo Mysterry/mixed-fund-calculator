@@ -11,9 +11,9 @@ Portfolio at 2021-04-05:
   NVDA: 1.00
   GOOG: 172.00
 Cash balance at 2021-04-05:
-  Charles Schwab: 9479.30 (USD)
-  Trading212: 33391.30 (GBP)
-  Morgan Stanley: 4219.95 (USD)
+  Charles Schwab: 9479.30 (USD) [£6908.61]
+  Trading212: 33391.30 (GBP) [£33391.30]
+  Morgan Stanley: 1.00 (USD) [£0.73]
 Disposal proceeds for 2020/2021: £43836.90
 Dividends for 2020/2021:
   NVDA: 0.10 (GBP)
@@ -26,9 +26,9 @@ Current portfolio:
   NVDA: 1.00
   GOOG: 163.20
 Current cash balance:
-  Charles Schwab: 9479.30 (USD)
-  Trading212: 33391.30 (GBP)
-  Morgan Stanley: 1.00 (USD)
+  Charles Schwab: 9479.30 (USD) [£7898.10]
+  Trading212: 33391.30 (GBP) [£33391.30]
+  Morgan Stanley: 1.00 (USD) [£0.83]
 
 Second pass completed
 Portfolio at the end of 2020/2021 tax year:

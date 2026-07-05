@@ -65,7 +65,7 @@ from .model import (
     MixedFundsReport,
     MixedFundMoneyCategory,
     aggregate_dicts, MixedFundEntry, RemittedIncomeType,
-    TRF_CAPITAL_TAX_YEAR, TRF_RELEVANT_TAX_YEARS,
+    ALREADY_UK_TAXED_CATEGORIES, TRF_CAPITAL_TAX_YEAR, TRF_RELEVANT_TAX_YEARS,
 )
 from .parsers import read_broker_transactions
 from .parsers.remittance import read_remittance_basis, read_owr
@@ -154,7 +154,12 @@ def _compute_remitted_tax_implications(
     movement: dict[int, dict[MixedFundMoneyCategory, Decimal]],
     tax_filings: TaxFilings,
 ) -> dict[tuple[int, MixedFundMoneyCategory], RemittedIncomeType]:
-    """UK tax implications of a remittance movement, per (tax_year, category)."""
+    """UK tax due specifically to remitting this movement to the UK, per (tax_year, category).
+
+    Categories in ALREADY_UK_TAXED_CATEGORIES, and money filed on the arising basis, have
+    no UK tax implication *due to remittance* -- it may still be taxable, just via a
+    different route (already taxed when it arose, ordinary PAYE, or the flat TRF charge).
+    """
     result: dict[tuple[int, MixedFundMoneyCategory], RemittedIncomeType] = {}
     for yr, cats in movement.items():
         # TRF Capital has no remittance-basis UK tax implication — its charge
@@ -163,22 +168,20 @@ def _compute_remitted_tax_implications(
             continue
         if tax_filings.get(yr) == TaxFilingBasis.REMITTANCE:
             for category, remittance in cats.items():
-                if remittance:
-                    if category in [
-                        MixedFundMoneyCategory.RELEVANT_FOREIGN_EARNINGS,
-                        MixedFundMoneyCategory.FOREIGN_SPECIFIC_EMPLOYMENT_INCOME,
-                        MixedFundMoneyCategory.RELEVANT_FOREIGN_INCOME,
-                        MixedFundMoneyCategory.OTHER_INCOME,
-                        MixedFundMoneyCategory.EMPLOYMENT_INCOME_SUBJECT_TO_A_FOREIGN_FAX,
-                        MixedFundMoneyCategory.RELEVANT_FOREIGN_INCOME_SUBJECT_TO_A_FOREIGN_FAX,
-                    ]:
-                        result[(yr, category)] = RemittedIncomeType.INCOME
-                    elif category in [
-                        MixedFundMoneyCategory.FOREIGN_CHARGEABLE_GAINS,
-                        MixedFundMoneyCategory.FOREIGN_CHARGEABLE_GAINS_SUBJECT_TO_A_FOREIGN_FAX,
-                    ]:
-                        result[(yr, category)] = RemittedIncomeType.CAPITAL_GAIN
-                    # EMPLOYMENT_INCOME: already UK-taxed, no further UK implication
+                if not remittance or category in ALREADY_UK_TAXED_CATEGORIES:
+                    continue
+                if category in [
+                    MixedFundMoneyCategory.RELEVANT_FOREIGN_EARNINGS,
+                    MixedFundMoneyCategory.FOREIGN_SPECIFIC_EMPLOYMENT_INCOME,
+                    MixedFundMoneyCategory.RELEVANT_FOREIGN_INCOME,
+                    MixedFundMoneyCategory.RELEVANT_FOREIGN_INCOME_SUBJECT_TO_A_FOREIGN_FAX,
+                ]:
+                    result[(yr, category)] = RemittedIncomeType.INCOME
+                elif category in [
+                    MixedFundMoneyCategory.FOREIGN_CHARGEABLE_GAINS,
+                    MixedFundMoneyCategory.FOREIGN_CHARGEABLE_GAINS_SUBJECT_TO_A_FOREIGN_FAX,
+                ]:
+                    result[(yr, category)] = RemittedIncomeType.CAPITAL_GAIN
     return result
 
 
@@ -690,6 +693,7 @@ class CapitalGainsCalculator:
                     transaction, f"Action not processed({transaction.action})"
                 )
             last_transaction_date = transaction.date
+            balance[(transaction.broker, transaction.currency)] = new_balance
             if transaction.date <= self.tax_year_end_date:
                 portfolio_at_tax_year_end = {
                     k: Position(v.quantity, v.amount) for k, v in self.portfolio.items()
@@ -715,7 +719,6 @@ class CapitalGainsCalculator:
                 )
                 msg += "Tip: If your input file is missing deposits/withdrawals use --no-balance-check."
                 raise CalculationError(msg)
-            balance[(transaction.broker, transaction.currency)] = new_balance
 
         self.first_pass_report(
             balance, dividends, dividends_tax, interests, total_disposal_proceeds,
@@ -860,7 +863,8 @@ class CapitalGainsCalculator:
                 print(f"  {stock}: {position}")
         print(f"Cash balance at {self.tax_year_end_date}:")
         for (broker, currency), amount in balance_at_tax_year_end.items():
-            print(f"  {broker}: {round_decimal(amount, 2)} ({currency})")
+            gbp_amount = self.currency_converter.to_gbp(amount, currency, self.tax_year_end_date)
+            print(f"  {broker}: {round_decimal(amount, 2)} ({currency}) [£{round_decimal(gbp_amount, 2)}]")
         print(f"Disposal proceeds for {self.tax_year}/{self.tax_year + 1}: £{round_decimal(total_disposal_proceeds, 2)}")
         if dividends:
             print(f"Dividends for {self.tax_year}/{self.tax_year + 1}:")
@@ -879,7 +883,9 @@ class CapitalGainsCalculator:
                 print(f"  {stock}: {position}")
         print("Current cash balance:")
         for (broker, currency), amount in balance.items():
-            print(f"  {broker}: {round_decimal(amount, 2)} ({currency})")
+            assert last_transaction_date is not None
+            gbp_amount = self.currency_converter.to_gbp(amount, currency, last_transaction_date)
+            print(f"  {broker}: {round_decimal(amount, 2)} ({currency}) [£{round_decimal(gbp_amount, 2)}]")
         print()
 
     def process_acquisition(

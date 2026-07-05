@@ -262,6 +262,18 @@ class MixedFundMoneyCategory(Enum):
     TRF_CAPITAL = 10
 
 
+# Categories that are already fully taxed as ordinary UK income when they arise,
+# regardless of the tax filing basis of the year. Remitting money from these
+# categories creates no further UK tax implication due to remittance, and they
+# cannot be designated as TRF Capital (there is nothing left for TRF to relieve).
+ALREADY_UK_TAXED_CATEGORIES: Final[frozenset[MixedFundMoneyCategory]] = frozenset(
+    {
+        MixedFundMoneyCategory.EMPLOYMENT_INCOME,
+        MixedFundMoneyCategory.EMPLOYMENT_INCOME_SUBJECT_TO_A_FOREIGN_FAX,
+        MixedFundMoneyCategory.OTHER_INCOME,
+    }
+)
+
 # RDRM70000: the Temporary Repatriation Facility is available for tax years
 # starting 2025, 2026 and 2027.
 TRF_RELEVANT_TAX_YEARS: Final[tuple[int, ...]] = (2025, 2026, 2027)
@@ -533,7 +545,7 @@ def get_list_representation_buckets(
 ) -> list[tuple[int, MixedFundMoneyCategory, Decimal]] :
     l = []
     for tax_year in sorted(buckets.keys(), reverse=True):
-        for category in buckets[tax_year].keys():
+        for category in sorted(buckets[tax_year].keys(), key=lambda c: c.value):
             amount = buckets[tax_year][category]
             if amount:
                 l.append((tax_year, category, amount))
@@ -733,7 +745,7 @@ class MixedFundEntry:
     def movements_display(
         self,
     ) -> list[tuple[int, MixedFundMoneyCategory, Decimal, RemittedIncomeType | None, Decimal]]:
-        """Return movements enriched with UK tax implication type and foreign tax, for template rendering."""
+        """Return movements enriched with UK tax implication (due to remittance) type and foreign tax, for template rendering."""
         tax_lookup = {(ty, cat): ft for ty, cat, ft in self.tax_movements}
         return [
             (
@@ -833,7 +845,9 @@ _UNSET = object()
 
 # The underlying nature of each mixed fund money category: whether it represents
 # income-type or capital-gain-type money, regardless of whether remitting it actually
-# creates a UK tax implication (which also depends on the tax filing basis of the year).
+# creates a UK tax implication due to remittance (which also depends on the tax filing
+# basis of the year -- money can still be taxable via a different route, e.g. it was
+# already taxed on the arising basis, taxed as ordinary UK income, or via the TRF charge).
 _CATEGORY_NATURE: dict[MixedFundMoneyCategory, RemittedIncomeType] = {
     MixedFundMoneyCategory.EMPLOYMENT_INCOME: RemittedIncomeType.INCOME,
     MixedFundMoneyCategory.RELEVANT_FOREIGN_EARNINGS: RemittedIncomeType.INCOME,
@@ -1047,9 +1061,10 @@ class CapitalGainsReport:
     ) -> Decimal:
         """Sum movement amounts across transfer-out entries, with optional filters.
 
-        uk_implication=_UNSET matches any implication; None matches movements with no UK tax implication.
+        uk_implication=_UNSET matches any implication; None matches movements with no UK tax
+        implication due to remittance (the money may still be taxable via another route).
         nature filters by the underlying income/capital-gain nature of the category (see _CATEGORY_NATURE),
-        independently of whether that movement actually carries a UK tax implication.
+        independently of whether that movement actually carries a UK tax implication due to remittance.
         Returned total is negative (withdrawals); callers negate for display.
         """
         total = Decimal(0)
@@ -1121,23 +1136,23 @@ class CapitalGainsReport:
         return -self._sum_transfer_out(broker, destination=Destination.OVERSEAS)
 
     def remitted_income(self, broker: str | None = None) -> Decimal:
-        """Total income-type money remitted to the UK, regardless of UK tax implication."""
+        """Total income-type money remitted to the UK, regardless of UK tax implication due to remittance."""
         return -self._sum_transfer_out(broker, destination=Destination.UK, nature=RemittedIncomeType.INCOME)
 
     def remitted_income_no_tax_implication(self, broker: str | None = None) -> Decimal:
-        """Remitted income-type money that carries no UK tax implication."""
+        """Remitted income-type money with no UK tax implication due to remittance (may still be taxable via another route)."""
         return -self._sum_transfer_out(
             broker, destination=Destination.UK, nature=RemittedIncomeType.INCOME, uk_implication=None
         )
 
     def remitted_income_tax_implication(self, broker: str | None = None) -> Decimal:
-        """Remitted income-type money that creates a UK income tax implication."""
+        """Remitted income-type money that creates a UK income tax implication due to remittance."""
         return -self._sum_transfer_out(
             broker, destination=Destination.UK, nature=RemittedIncomeType.INCOME, uk_implication=RemittedIncomeType.INCOME
         )
 
     def remitted_income_tax_implication_no_relief(self, broker: str | None = None) -> Decimal:
-        """Remitted income with a UK tax implication and no associated foreign tax credit."""
+        """Remitted income with a UK tax implication due to remittance and no associated foreign tax credit."""
         return -self._sum_transfer_out(
             broker,
             destination=Destination.UK,
@@ -1147,7 +1162,7 @@ class CapitalGainsReport:
         )
 
     def remitted_income_tax_implication_with_relief(self, broker: str | None = None) -> tuple[Decimal, Decimal]:
-        """Remitted income with a UK tax implication that carries a foreign tax credit. Returns (amount, foreign_tax_paid)."""
+        """Remitted income with a UK tax implication due to remittance that carries a foreign tax credit. Returns (amount, foreign_tax_paid)."""
         total, tax = self._sum_transfer_out_with_tax(
             broker,
             destination=Destination.UK,
@@ -1158,17 +1173,17 @@ class CapitalGainsReport:
         return -total, -tax
 
     def remitted_gains(self, broker: str | None = None) -> Decimal:
-        """Total capital-gain-type money remitted to the UK, regardless of UK tax implication."""
+        """Total capital-gain-type money remitted to the UK, regardless of UK tax implication due to remittance."""
         return -self._sum_transfer_out(broker, destination=Destination.UK, nature=RemittedIncomeType.CAPITAL_GAIN)
 
     def remitted_gains_no_tax_implication(self, broker: str | None = None) -> Decimal:
-        """Remitted gain-type money that carries no UK tax implication."""
+        """Remitted gain-type money with no UK tax implication due to remittance (may still be taxable via another route)."""
         return -self._sum_transfer_out(
             broker, destination=Destination.UK, nature=RemittedIncomeType.CAPITAL_GAIN, uk_implication=None
         )
 
     def remitted_gains_tax_implication(self, broker: str | None = None) -> Decimal:
-        """Remitted gain-type money that creates a UK capital gains tax implication."""
+        """Remitted gain-type money that creates a UK capital gains tax implication due to remittance."""
         return -self._sum_transfer_out(
             broker,
             destination=Destination.UK,
@@ -1177,7 +1192,7 @@ class CapitalGainsReport:
         )
 
     def remitted_gains_tax_implication_no_relief(self, broker: str | None = None) -> Decimal:
-        """Remitted gains with a UK tax implication and no associated foreign tax credit."""
+        """Remitted gains with a UK tax implication due to remittance and no associated foreign tax credit."""
         return -self._sum_transfer_out(
             broker,
             destination=Destination.UK,
@@ -1187,7 +1202,7 @@ class CapitalGainsReport:
         )
 
     def remitted_gains_tax_implication_with_relief(self, broker: str | None = None) -> tuple[Decimal, Decimal]:
-        """Remitted gains with a UK tax implication that carry a foreign tax credit. Returns (amount, foreign_tax_paid)."""
+        """Remitted gains with a UK tax implication due to remittance that carry a foreign tax credit. Returns (amount, foreign_tax_paid)."""
         total, tax = self._sum_transfer_out_with_tax(
             broker,
             destination=Destination.UK,

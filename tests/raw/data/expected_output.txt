@@ -8,7 +8,7 @@ Portfolio at 2023-04-05:
   BABA: 30.00
   META: 119.00
 Cash balance at 2023-04-05:
-  Unknown: -31846.60 (USD)
+  Unknown: -28486.60 (USD) [£-23290.49]
 Disposal proceeds for 2022/2023: £11422.10
 Dividends for 2022/2023:
   OTGLY: 9.68 (USD)
@@ -20,7 +20,7 @@ Current portfolio:
   BABA: 30.00
   META: 119.00
 Current cash balance:
-  Unknown: -28486.60 (USD)
+  Unknown: -28486.60 (USD) [£-22987.90]
 
 Second pass completed
 Portfolio at the end of 2022/2023 tax year:
