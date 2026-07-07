@@ -409,6 +409,29 @@ class MixedFundComposition:
         )
 
 
+    def purge(self) -> tuple[dict[int, dict[MixedFundMoneyCategory, Decimal]], dict[int, dict[MixedFundMoneyCategory, Decimal]]]:
+        """Reset every bucket to zero.
+
+        Used when the account's real value has gone to zero (fully closed): any
+        composition still on the books at that point must be drift -- e.g. from
+        capital losses, which reduce the account's real value but are never
+        recognised as reducing the mixed fund (RDRM/CGM have no rule for this; see
+        main.py's account-closure check) -- rather than genuine remaining value.
+        Returns the removed amounts as a negative movement, for logging.
+        """
+        movement: dict[int, dict[MixedFundMoneyCategory, Decimal]] = {}
+        tax_movement: dict[int, dict[MixedFundMoneyCategory, Decimal]] = {}
+        for tax_year, categories in self.buckets.items():
+            for category, amount in categories.items():
+                if amount:
+                    movement.setdefault(tax_year, {})[category] = -amount
+                tax_amount = self.tax_buckets[tax_year][category]
+                if tax_amount:
+                    tax_movement.setdefault(tax_year, {})[category] = -tax_amount
+        self.buckets = defaultdict(lambda: defaultdict(Decimal))
+        self.tax_buckets = defaultdict(lambda: defaultdict(Decimal))
+        return movement, tax_movement
+
     def get_total_amount(self) -> Decimal:
         """Returns total amount in the mixed fund across all tax years and categories."""
 

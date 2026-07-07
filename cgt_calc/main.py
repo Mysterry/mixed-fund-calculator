@@ -242,6 +242,22 @@ class CapitalGainsCalculator:
         self.calculation_log_yields: CalculationLog = defaultdict(dict)
 
         self.portfolio: dict[str, Position] = defaultdict(Position)
+        # Net quantity acquired/disposed of per (broker, symbol) on each date. Replayed
+        # during calculate_capital_gain's day-by-day walk to determine, at any point in
+        # time, whether a specific broker's holdings have gone to zero -- used to detect
+        # full account closure for the mixed fund composition purge.
+        self.broker_quantity_deltas: defaultdict[datetime.date, defaultdict[tuple[str, str], Decimal]] = (
+            defaultdict(lambda: defaultdict(Decimal))
+        )
+        # Running per-(broker, symbol) quantity, tracked only so reverse splits below can
+        # compute a delta relative to a single broker's own holding, rather than the
+        # S104-pooled cross-broker total in self.portfolio.
+        self._broker_quantity_running: defaultdict[tuple[str, str], Decimal] = defaultdict(Decimal)
+        # Net cash movement per (broker, currency) on each date, replayed the same way to
+        # determine whether a broker's cash balance has gone to zero.
+        self.broker_cash_deltas: defaultdict[datetime.date, defaultdict[tuple[str, str], Decimal]] = (
+            defaultdict(lambda: defaultdict(Decimal))
+        )
         self.spin_offs: dict[datetime.date, list[SpinOff]] = defaultdict(list)
         self.eris: ExcessReportedIncomeLog = defaultdict(dict)
         self.eris_distribution: ExcessReportedIncomeDistributionLog = defaultdict(
@@ -300,6 +316,8 @@ class CapitalGainsCalculator:
             amount = -amount
 
         self.portfolio[symbol] += Position(quantity, amount)
+        self.broker_quantity_deltas[transaction.date][(transaction.broker, symbol)] += quantity
+        self._broker_quantity_running[(transaction.broker, symbol)] += quantity
 
         add_to_list(
             self.acquisition_list,
@@ -420,6 +438,8 @@ class CapitalGainsCalculator:
         price = transaction.price
 
         self.portfolio[symbol] -= Position(quantity, amount)
+        self.broker_quantity_deltas[transaction.date][(transaction.broker, symbol)] -= quantity
+        self._broker_quantity_running[(transaction.broker, symbol)] -= quantity
 
         if self.portfolio[symbol].quantity == 0:
             del self.portfolio[symbol]
@@ -575,6 +595,7 @@ class CapitalGainsCalculator:
                 )  # dummy value, this will get filtered out
                 continue
             new_balance = balance[(transaction.broker, transaction.currency)]
+            old_balance = new_balance
             if transaction.action in [
                 ActionType.BUY_OPTION,
                 ActionType.SELL_OPTION,
@@ -648,6 +669,12 @@ class CapitalGainsCalculator:
                     self.portfolio[symbol] = Position(
                         new_quantity, self.portfolio[symbol].amount
                     )
+                    broker_key = (transaction.broker, symbol)
+                    new_broker_quantity = self._broker_quantity_running[broker_key] * multiplier
+                    self.broker_quantity_deltas[transaction.date][broker_key] += (
+                        new_broker_quantity - self._broker_quantity_running[broker_key]
+                    )
+                    self._broker_quantity_running[broker_key] = new_broker_quantity
 
 
             elif transaction.action in [ActionType.DIVIDEND, ActionType.CAPITAL_GAIN]:
@@ -694,6 +721,9 @@ class CapitalGainsCalculator:
                 )
             last_transaction_date = transaction.date
             balance[(transaction.broker, transaction.currency)] = new_balance
+            self.broker_cash_deltas[transaction.date][(transaction.broker, transaction.currency)] += (
+                new_balance - old_balance
+            )
             if transaction.date <= self.tax_year_end_date:
                 portfolio_at_tax_year_end = {
                     k: Position(v.quantity, v.amount) for k, v in self.portfolio.items()
@@ -1501,6 +1531,11 @@ class CapitalGainsCalculator:
         # Per (broker, tax_year): accumulated transfer amounts deferred under annualized basis.
         pending_uk_remittance: defaultdict[str, defaultdict[int, Decimal]] = defaultdict(lambda: defaultdict(Decimal))
         pending_overseas_transfer: defaultdict[str, defaultdict[int, Decimal]] = defaultdict(lambda: defaultdict(Decimal))
+        # Per-broker holdings (symbol -> quantity) and cash (currency -> amount), replayed
+        # day-by-day from broker_quantity_deltas/broker_cash_deltas, to detect when a
+        # broker's account (across all symbols/currencies) has gone fully to zero.
+        broker_holdings: defaultdict[str, defaultdict[str, Decimal]] = defaultdict(lambda: defaultdict(Decimal))
+        broker_cash: defaultdict[str, defaultdict[str, Decimal]] = defaultdict(lambda: defaultdict(Decimal))
 
         for broker in self.mixed_funds.keys():
             mixed_funds_log[broker] = []
@@ -1509,6 +1544,10 @@ class CapitalGainsCalculator:
             begin_index + datetime.timedelta(days=x)
             for x in range((end_index - begin_index).days + 1)
         ):
+            for (broker_key, symbol), delta in self.broker_quantity_deltas.get(date_index, {}).items():
+                broker_holdings[broker_key][symbol] += delta
+            for (broker_key, currency), delta in self.broker_cash_deltas.get(date_index, {}).items():
+                broker_cash[broker_key][currency] += delta
             if date_index in self.acquisition_list:
                 for symbol in self.acquisition_list[date_index]:
                     calculation_entries = self.process_acquisition(
@@ -2171,6 +2210,7 @@ class CapitalGainsCalculator:
                                     destination=Destination.UK,
                                 )
                             )
+                        pending_uk_remittance[broker][y] = Decimal(0)
 
                     overseas_total = pending_overseas_transfer[broker][y]
                     if overseas_total > 0:
@@ -2188,6 +2228,41 @@ class CapitalGainsCalculator:
                                     tax_movement=tax_movement,
                                     mixed_fund_composition=composition,
                                     destination=Destination.OVERSEAS,
+                                )
+                            )
+                        pending_overseas_transfer[broker][y] = Decimal(0)
+
+                # Full account closure: if this broker's holdings and cash balance have
+                # both gone to zero across every symbol/currency, any composition still
+                # on the books must be drift (e.g. from capital losses, which reduce the
+                # account's real value but are never recognised as reducing the mixed
+                # fund) rather than genuine remaining value -- reset it.
+                # While the tax year containing date_index is TRF-annualized for this
+                # broker (trf_active), composition is deliberately allowed to run ahead
+                # of real account value all year -- transfers are deferred to the
+                # year-end flush above rather than applied immediately. So the purge
+                # can only ever fire on that year's last day (once the flush has run),
+                # never mid-year, regardless of what cash/holdings read on any given day.
+                trf_annualized_this_year = (
+                    tax_year in TRF_RELEVANT_TAX_YEARS
+                    and trf_active[broker].get(tax_year, False)
+                    and date_index < get_tax_year_end(tax_year)
+                )
+                if composition.get_total_amount() and not trf_annualized_this_year:
+                    cash_is_zero = not any(broker_cash[broker].values())
+                    holdings_are_zero = not any(broker_holdings[broker].values())
+                    if cash_is_zero and holdings_are_zero:
+                        movement, tax_movement = composition.purge()
+                        message = "Composition reset to zero on account closure"
+                        LOGGER.debug(message)
+                        if date_index >= tax_year_start_index:
+                            mixed_fund_log.append(
+                                MixedFundEntry(
+                                    message=message,
+                                    movement=movement,
+                                    tax_movement=tax_movement,
+                                    mixed_fund_composition=composition,
+                                    remitted_tax_implications=None,
                                 )
                             )
 
