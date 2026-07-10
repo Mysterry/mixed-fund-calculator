@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 from cgt_calc.currency_converter import CurrencyConverter
-from cgt_calc.exceptions import ParsingError
+from cgt_calc.exceptions import ExternalApiError, ParsingError
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -99,3 +99,29 @@ def test_read_exchange_rates_raises_on_duplicate_currency(tmp_path: Path) -> Non
         match="Duplicate currency entry for USD on 2024-01-01",
     ):
         CurrencyConverter(exchange_rates_file=rates_file)
+
+
+def test_currency_rate_falls_back_to_latest_cached_value_on_future_api_failure(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A failed future-month fetch falls back to the latest cached rate."""
+    converter = CurrencyConverter(
+        initial_data={
+            datetime.date(2026, 6, 1): {"USD": Decimal("1.25")},
+            datetime.date(2026, 5, 1): {"USD": Decimal("1.20")},
+        }
+    )
+
+    def raise_external_error(date: datetime.date) -> None:
+        raise ExternalApiError(
+            "https://example.invalid",
+            "HMRC API returned HTTP 404 for 2027-04.",
+        )
+
+    converter._query_hmrc_api = raise_external_error  # type: ignore[method-assign]
+
+    caplog.set_level("WARNING")
+    rate = converter.currency_to_gbp_rate("USD", datetime.date(2027, 4, 1))
+
+    assert rate == Decimal("1.25")
+    assert "defaulting to the latest cached USD rate as of 2026-06-01" in caplog.text

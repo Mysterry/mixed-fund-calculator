@@ -132,6 +132,19 @@ class CurrencyConverter:
             writer = csv.writer(fout)
             writer.writerows([EXCHANGE_RATES_HEADER, *data_rows])
 
+    def _latest_cached_rate_for_currency(
+        self, currency: str, requested_date: datetime.date
+    ) -> tuple[datetime.date, Decimal]:
+        """Return the latest cached GBP rate for a currency."""
+        matching_dates = sorted(
+            date for date, rates in self.cache.items() if currency in rates
+        )
+        if not matching_dates:
+            raise ExchangeRateMissingError(currency, requested_date)
+
+        latest_date = matching_dates[-1]
+        return latest_date, self.cache[latest_date][currency]
+
     def _query_hmrc_api(self, date: datetime.date) -> None:
         # Pre 2021 we need to use the old HMRC endpoint
         if date.year < NEW_ENDPOINT_FROM_YEAR:
@@ -193,7 +206,23 @@ class CurrencyConverter:
         """Get GBP/currency rate at given date."""
         assert is_date(date)
         if date not in self.cache:
-            self._query_hmrc_api(date)
+            try:
+                self._query_hmrc_api(date)
+            except ExternalApiError:
+                latest_date, rate = self._latest_cached_rate_for_currency(
+                    currency.upper(), date
+                )
+                active_logger = logger or logging.getLogger(__name__)
+                active_logger.warning(
+                    (
+                        "HMRC exchange rates for %s are unavailable; "
+                        "defaulting to the latest cached %s rate as of %s"
+                    ),
+                    date.strftime("%Y-%m"),
+                    currency.upper(),
+                    latest_date,
+                )
+                return rate
         if currency not in self.cache[date]:
             raise ExchangeRateMissingError(currency, date)
 

@@ -529,8 +529,14 @@ class MixedFundComposition:
         """Designate pre-2025 amounts as TRF Capital (RDRM70000).
 
         Moves each (source tax_year, category) amount out of its bucket and into
-        the TRF_CAPITAL_TAX_YEAR/TRF_CAPITAL bucket, carrying any associated
-        foreign tax credit proportionally, via remove_money/add_money.
+        the TRF_CAPITAL_TAX_YEAR/TRF_CAPITAL bucket via remove_money/add_money.
+
+        Any foreign tax credit on the source money is extinguished, not carried
+        forward: the TRF charge is a flat rate on the gross designated amount,
+        with no relief available for foreign tax already paid on it (it cannot be
+        set against the TRF charge -- designated amounts are treated as net of
+        tax), so tracking a foreign tax credit against TRF Capital would be
+        misleading.
         """
         movement: dict[int, dict[MixedFundMoneyCategory, Decimal]] = {}
         tax_movement: dict[int, dict[MixedFundMoneyCategory, Decimal]] = {}
@@ -548,12 +554,10 @@ class MixedFundComposition:
             tax_amount = tax_available * amount / available if available else Decimal(0)
 
             removed, removed_tax = self.remove_money(tax_year, category, amount, tax_amount)
-            added, added_tax = self.add_money(
-                TRF_CAPITAL_TAX_YEAR, MixedFundMoneyCategory.TRF_CAPITAL, amount, tax_amount
-            )
+            added, _ = self.add_money(TRF_CAPITAL_TAX_YEAR, MixedFundMoneyCategory.TRF_CAPITAL, amount)
 
             movement = aggregate_dicts(aggregate_dicts(movement, removed), added)
-            tax_movement = aggregate_dicts(aggregate_dicts(tax_movement, removed_tax), added_tax)
+            tax_movement = aggregate_dicts(tax_movement, removed_tax)
 
         return movement, tax_movement
 
@@ -1335,14 +1339,6 @@ class CapitalGainsReport:
     def transferred_overseas_by_period(self, broker: str, period: Period) -> Decimal:
         """Total transferred overseas drawn from a specific Period bucket group."""
         return -self._sum_transfer_out(broker, destination=Destination.OVERSEAS, period=period)
-
-    def remitted_by_category(self, broker: str | None = None) -> dict[MixedFundMoneyCategory, Decimal]:
-        """Total remitted to the UK, broken down by category."""
-        return self.breakdown_by_category(broker, destination=Destination.UK)
-
-    def transferred_overseas_by_category(self, broker: str | None = None) -> dict[MixedFundMoneyCategory, Decimal]:
-        """Total transferred overseas, broken down by category."""
-        return self.breakdown_by_category(broker, destination=Destination.OVERSEAS)
 
     def __repr__(self) -> str:
         """Return string representation."""

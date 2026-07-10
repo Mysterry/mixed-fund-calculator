@@ -258,7 +258,7 @@ Mixed funds calculations for
       \VAR{ category_breakdown_with_tax(report.breakdown_by_category_with_tax(broker, destination=Destination.UK, nature=RemittedIncomeType.INCOME, uk_implication=RemittedIncomeType.INCOME, has_foreign_tax=True)) }
     \end{itemize}
     \item Without UK tax implication due to remittance (may still be taxable via another route, e.g. arising basis, PAYE or TRF): \GBP\VAR{ "{:,}".format(round_decimal(report.remitted_income_no_tax_implication(broker), 2))}
-    \VAR{ category_breakdown(report.breakdown_by_category(broker, destination=Destination.UK, nature=RemittedIncomeType.INCOME, uk_implication=None)) }
+    \VAR{ category_breakdown_with_tax(report.breakdown_by_category_with_tax(broker, destination=Destination.UK, nature=RemittedIncomeType.INCOME, uk_implication=None)) }
   \end{itemize}
   \item Capital Gains remitted: \GBP\VAR{ "{:,}".format(round_decimal(report.remitted_gains(broker), 2))}
   \begin{itemize}
@@ -270,16 +270,16 @@ Mixed funds calculations for
       \VAR{ category_breakdown_with_tax(report.breakdown_by_category_with_tax(broker, destination=Destination.UK, nature=RemittedIncomeType.CAPITAL_GAIN, uk_implication=RemittedIncomeType.CAPITAL_GAIN, has_foreign_tax=True)) }
     \end{itemize}
     \item Without UK tax implication due to remittance (may still be taxable via another route, e.g. arising basis, PAYE or TRF): \GBP\VAR{ "{:,}".format(round_decimal(report.remitted_gains_no_tax_implication(broker), 2))}
-    \VAR{ category_breakdown(report.breakdown_by_category(broker, destination=Destination.UK, nature=RemittedIncomeType.CAPITAL_GAIN, uk_implication=None)) }
+    \VAR{ category_breakdown_with_tax(report.breakdown_by_category_with_tax(broker, destination=Destination.UK, nature=RemittedIncomeType.CAPITAL_GAIN, uk_implication=None)) }
   \end{itemize}
   \BLOCK{ for period in [Period.POST_2025, Period.PRE_2025_REMITTANCE, Period.PRE_2025_ARISING, Period.TRF_CAPITAL] }
   \item From \VAR{ period_label[period] }: \GBP\VAR{ "{:,}".format(round_decimal(report.remitted_by_period(broker, period), 2))}
-  \VAR{ category_breakdown(report.breakdown_by_category(broker, destination=Destination.UK, period=period)) }
+  \VAR{ category_breakdown_with_tax(report.breakdown_by_category_with_tax(broker, destination=Destination.UK, period=period)) }
   \BLOCK{ endfor }
-  \BLOCK{ set remitted_by_cat = report.remitted_by_category(broker) }
+  \BLOCK{ set remitted_by_cat = report.breakdown_by_category_with_tax(broker, destination=Destination.UK) }
   \BLOCK{ if remitted_by_cat }
   \item By category:
-  \VAR{ category_breakdown(remitted_by_cat) }
+  \VAR{ category_breakdown_with_tax(remitted_by_cat) }
   \BLOCK{ endif }
 \end{itemize}
 
@@ -287,12 +287,12 @@ Mixed funds calculations for
 \begin{itemize}
   \BLOCK{ for period in [Period.POST_2025, Period.PRE_2025_REMITTANCE, Period.PRE_2025_ARISING, Period.TRF_CAPITAL] }
   \item From \VAR{ period_label[period] }: \GBP\VAR{ "{:,}".format(round_decimal(report.transferred_overseas_by_period(broker, period), 2))}
-  \VAR{ category_breakdown(report.breakdown_by_category(broker, destination=Destination.OVERSEAS, period=period)) }
+  \VAR{ category_breakdown_with_tax(report.breakdown_by_category_with_tax(broker, destination=Destination.OVERSEAS, period=period)) }
   \BLOCK{ endfor }
-  \BLOCK{ set overseas_by_cat = report.transferred_overseas_by_category(broker) }
+  \BLOCK{ set overseas_by_cat = report.breakdown_by_category_with_tax(broker, destination=Destination.OVERSEAS) }
   \BLOCK{ if overseas_by_cat }
   \item By category:
-  \VAR{ category_breakdown(overseas_by_cat) }
+  \VAR{ category_breakdown_with_tax(overseas_by_cat) }
   \BLOCK{ endif }
 \end{itemize}
 

@@ -1954,14 +1954,15 @@ class CapitalGainsCalculator:
                                     )
                     elif transaction.action == ActionType.INTEREST:
                         if transaction.tax_at_source:
-                            # Investment gains subject to a foreign tax go to a specific bucket
+                            # Interest is foreign income, not a gain. Subject to a foreign
+                            # tax has a specific bucket (RDRM35240 category (g)).
                             amount = transaction.amount - transaction.fees
                             tax_amount = -transaction.tax_at_source
 
-                            movement, tax_movement = composition.add_money(tax_year, MixedFundMoneyCategory.FOREIGN_CHARGEABLE_GAINS_SUBJECT_TO_A_FOREIGN_FAX, amount, tax_amount)
+                            movement, tax_movement = composition.add_money(tax_year, MixedFundMoneyCategory.RELEVANT_FOREIGN_INCOME_SUBJECT_TO_A_FOREIGN_FAX, amount, tax_amount)
 
                             message = (
-                            "Interest on %s in %s accrued leads to £%s deposited in foreign gains " 
+                            "Interest on %s in %s accrued leads to £%s deposited in foreign income "
                             "subject to foreign tax with foreign tax (foreign tax: £%s) "
                             ) % (
                             date_index,
@@ -1981,12 +1982,12 @@ class CapitalGainsCalculator:
                                     )
                                 )
                         else:
-                            # Investment gains not subject to a foreign tax have a specific bucket
-                            movement, tax_movement = composition.add_money(tax_year, MixedFundMoneyCategory.FOREIGN_CHARGEABLE_GAINS, transaction.amount - transaction.fees)
+                            # Interest is foreign income, not a gain (RDRM35240 category (d)).
+                            movement, tax_movement = composition.add_money(tax_year, MixedFundMoneyCategory.RELEVANT_FOREIGN_INCOME, transaction.amount - transaction.fees)
 
                             message = (
                             "Interest on %s in %s accrued "
-                            "without foreign tax leads to £%s deposited in foreign gains"
+                            "without foreign tax leads to £%s deposited in foreign income"
                             ) % (
                             date_index,
                             broker,
@@ -2008,15 +2009,16 @@ class CapitalGainsCalculator:
                         if transaction.amount <= 0:
                             pass  # dividend reversal, skip mixed fund entry
                         elif transaction.tax_at_source:
-                            # Investment gains subject to a foreign tax go to a specific bucket
+                            # Dividends are foreign income, not a gain. Subject to a foreign
+                            # tax has a specific bucket (RDRM35240 category (g)).
                             amount = transaction.amount - transaction.fees
                             tax_amount = -transaction.tax_at_source
 
-                            movement, tax_movement = composition.add_money(tax_year, MixedFundMoneyCategory.FOREIGN_CHARGEABLE_GAINS_SUBJECT_TO_A_FOREIGN_FAX, amount, tax_amount)
+                            movement, tax_movement = composition.add_money(tax_year, MixedFundMoneyCategory.RELEVANT_FOREIGN_INCOME_SUBJECT_TO_A_FOREIGN_FAX, amount, tax_amount)
 
                             message = (
-                            "%s Dividend on %s in %s accrued leads to £%s deposited in foreign " 
-                            " gains subject to foreign tax (foreign tax: £%s) "
+                            "%s Dividend on %s in %s accrued leads to £%s deposited in foreign "
+                            "income subject to foreign tax (foreign tax: £%s) "
                             ) % (
                             transaction.symbol,
                             date_index,
@@ -2036,12 +2038,12 @@ class CapitalGainsCalculator:
                                     )
                                 )
                         else:
-                            # Investment gains not subject to a foreign tax have a specific bucket
-                            movement, tax_movement = composition.add_money(tax_year, MixedFundMoneyCategory.FOREIGN_CHARGEABLE_GAINS, transaction.amount - transaction.fees)
+                            # Dividends are foreign income, not a gain (RDRM35240 category (d)).
+                            movement, tax_movement = composition.add_money(tax_year, MixedFundMoneyCategory.RELEVANT_FOREIGN_INCOME, transaction.amount - transaction.fees)
 
                             message = (
                             "%s Dividend on %s in %s accrued "
-                            "without foreign tax leads to £%s deposited in foreign gains"
+                            "without foreign tax leads to £%s deposited in foreign income"
                             ) % (
                             transaction.symbol,
                             date_index,
