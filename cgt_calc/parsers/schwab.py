@@ -106,7 +106,6 @@ def action_from_str(label: str, file: Path) -> ActionType:
         "Div Adjustment",
         "Special Qual Div",
         "Non-Qualified Div",
-        "Cash In Lieu"
     ]:
         return ActionType.DIVIDEND
 
@@ -119,7 +118,11 @@ def action_from_str(label: str, file: Path) -> ActionType:
     if label in ["ADR Mgmt Fee", "Misc Cash Entry", "Service Fee"]:
         return ActionType.FEE
 
-    if label in ["Adjustment", "IRS Withhold Adj", "Wire Funds Adj"]:
+    # Cash in lieu of a fractional entitlement (e.g. warrant distributions)
+    # is a small capital distribution (TCGA 1992 s.122), not dividend income:
+    # cash into the balance, pure capital in the mixed fund, no income event.
+    # The strict base cost reduction it entails is ignored as negligible.
+    if label in ["Adjustment", "IRS Withhold Adj", "Wire Funds Adj", "Cash In Lieu"]:
         return ActionType.ADJUSTMENT
 
     if label in ["Short Term Cap Gain", "Long Term Cap Gain"]:

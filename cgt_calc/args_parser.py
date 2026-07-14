@@ -225,6 +225,13 @@ Environment variables:
         help=argparse.SUPPRESS,
     )
     broker_group.add_argument(
+        "--fortuneo-file",
+        type=existing_file_type,
+        default=None,
+        metavar="PATH",
+        help="Fortuneo dividend history in CSV format",
+    )
+    broker_group.add_argument(
         "--schwab-file",
         type=existing_file_type,
         metavar="PATH",
@@ -399,6 +406,13 @@ Environment variables:
         metavar="TICKER[,TICKER...]",
         default=[],
         help="tickers of bond funds/ETFs whose dividends are taxed as interest in the UK",
+    )
+    calc_group.add_argument(
+        "--crypto-tickers",
+        type=ticker_list_type,
+        metavar="TICKER[,TICKER...]",
+        default=[],
+        help="additional tickers reported as cryptoassets on SA108 (BTC and ETH always are)",
     )
     calc_group.add_argument(
         "--no-trf-prompt",

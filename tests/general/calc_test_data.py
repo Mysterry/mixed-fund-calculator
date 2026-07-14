@@ -24,6 +24,7 @@ def dividend_transaction(
     date: datetime.date,
     symbol: str,
     amount: float,
+    isin: str | None = None,
 ) -> BrokerTransaction:
     """Create dividend transaction."""
     return transaction(
@@ -34,6 +35,7 @@ def dividend_transaction(
         None,
         0,
         amount,
+        isin=isin,
     )
 
 

@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Final
 
 from requests_ratelimiter import LimiterSession
+import yfinance as yf  # type: ignore[import-untyped]
 
 from .const import CGT_TEST_MODE, INITIAL_ISIN_TRANSLATION_RESOURCE
 from .exceptions import (
@@ -66,6 +67,8 @@ class IsinConverter:
         self.isin_translation_file = isin_translation_file
         self.data: dict[str, set[str]] = {}
         self.write_data: dict[str, set[str]] = {}
+        self.reverse_data: dict[str, str] = {}
+        self.symbols_without_isin: set[str] = set()
         self._read_isin_translation_data()
         self.validate_data()
 
@@ -90,6 +93,7 @@ class IsinConverter:
                         f"cannot also link to {isin}"
                     )
                 reverse_cache[symbol] = isin
+        self.reverse_data = reverse_cache
 
     def add_from_transaction(self, transaction: BrokerTransaction) -> None:
         """Add the ISIN to symbol mapping from an existing transaction."""
@@ -113,6 +117,53 @@ class IsinConverter:
                     transaction.symbol
                 )
                 self._write_isin_translation_file()
+
+    def get_isin(self, symbol: str) -> str | None:
+        """Return the ISIN linked to the given symbol.
+
+        Unknown symbols are looked up live once and cached in the
+        translation file.
+        """
+        isin = self.reverse_data.get(symbol)
+        if isin is not None:
+            return isin
+        if CGT_TEST_MODE or symbol in self.symbols_without_isin:
+            return None
+        isin = self._fetch_isin_live(symbol)
+        if isin is None:
+            self.symbols_without_isin.add(symbol)
+            return None
+        self.data.setdefault(isin, set()).add(symbol)
+        self.write_data.setdefault(isin, set()).add(symbol)
+        # Also refreshes reverse_data via validate_data().
+        self._write_isin_translation_file()
+        return isin
+
+    def _fetch_isin_live(self, symbol: str) -> str | None:
+        """Fetch the ISIN for a ticker from Yahoo Finance."""
+        LOGGER.info("Fetching ISIN for ticker %s...", symbol)
+        # yfinance logs lookup failures (e.g. HTTP 404 for tickers Yahoo
+        # doesn't know) at ERROR level; silence it since a missing ISIN is
+        # handled gracefully here.
+        yf_logger = logging.getLogger("yfinance")
+        previous_level = yf_logger.level
+        yf_logger.setLevel(logging.CRITICAL)
+        try:
+            isin = yf.Ticker(symbol).isin
+        except Exception:  # noqa: BLE001 - yfinance raises various types
+            isin = None
+        finally:
+            yf_logger.setLevel(previous_level)
+        if not isin or not is_isin(isin):
+            LOGGER.warning(
+                "Couldn't determine ISIN for ticker %s; if you know it, add "
+                "an '<ISIN>,%s' line to %s",
+                symbol,
+                symbol,
+                self.isin_translation_file,
+            )
+            return None
+        return isin
 
     def get_symbols(self, isin: str) -> set[str]:
         """Return the symbol associated with the input ISIN or empty string."""

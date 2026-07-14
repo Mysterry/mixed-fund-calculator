@@ -16,7 +16,16 @@ from cgt_calc.current_price_fetcher import CurrentPriceFetcher
 from cgt_calc.initial_prices import InitialPrices
 from cgt_calc.isin_converter import IsinConverter
 from cgt_calc.main import CapitalGainsCalculator
-from cgt_calc.model import ActionType, BrokerTransaction
+from cgt_calc.model import (
+    ActionType,
+    BrokerTransaction,
+    CalculationEntry,
+    CapitalGainsReport,
+    Dividend,
+    ForeignCurrencyAmount,
+    RuleType,
+    TaxTreaty,
+)
 from cgt_calc.spin_off_handler import SpinOffHandler
 from cgt_calc.util import round_decimal
 from tests.utils import build_cmd
@@ -25,7 +34,7 @@ from .calc_test_data import calc_basic_data
 from .calc_test_data_2 import calc_basic_data_2
 
 if TYPE_CHECKING:
-    from cgt_calc.model import CalculationLog, CapitalGainsReport
+    from cgt_calc.model import CalculationLog
 
 
 def get_report(
@@ -198,6 +207,201 @@ def test_mixed_fund_pre_post_2025_columns_handle_pre_2025_years() -> None:
     assert report.mixed_funds_pre_post_2025_columns["Schwab"] == [
         (Period.PRE_2025_ARISING, MixedFundMoneyCategory.EMPLOYMENT_INCOME)
     ]
+
+
+def test_dividend_summary_is_grouped_by_country() -> None:
+    """Dividends, tax paid and treaty allowance should be summed per country."""
+
+    usa_treaty = TaxTreaty("USA", Decimal("0.15"))
+    poland_treaty = TaxTreaty("Poland", Decimal("0.1"))
+
+    report = CapitalGainsReport(
+        tax_year=2026,
+        portfolio=[],
+        disposal_count=0,
+        disposed_symbols=set(),
+        disposal_proceeds=Decimal(0),
+        allowable_costs=Decimal(0),
+        capital_gain=Decimal(0),
+        capital_loss=Decimal(0),
+        capital_gain_allowance=None,
+        dividend_allowance=Decimal(500),
+        calculation_log={},
+        calculation_log_yields={
+            datetime.date(2026, 6, 1): {
+                "dividend$AAA": [
+                    CalculationEntry(
+                        rule_type=RuleType.DIVIDEND,
+                        quantity=Decimal(1),
+                        amount=Decimal("100"),
+                        new_quantity=Decimal(1),
+                        new_pool_cost=Decimal(0),
+                        fees=Decimal(0),
+                        dividend=Dividend(
+                            date=datetime.date(2026, 6, 1),
+                            symbol="AAA",
+                            amount=Decimal("100"),
+                            tax_at_source=Decimal("-15"),
+                            is_interest=False,
+                            tax_treaty=usa_treaty,
+                            country="USA",
+                        ),
+                    )
+                ],
+                "dividend$BBB": [
+                    CalculationEntry(
+                        rule_type=RuleType.DIVIDEND,
+                        quantity=Decimal(1),
+                        amount=Decimal("50"),
+                        new_quantity=Decimal(1),
+                        new_pool_cost=Decimal(0),
+                        fees=Decimal(0),
+                        dividend=Dividend(
+                            date=datetime.date(2026, 6, 2),
+                            symbol="BBB",
+                            amount=Decimal("50"),
+                            tax_at_source=Decimal("-9.5"),
+                            is_interest=False,
+                            tax_treaty=poland_treaty,
+                            country="Poland",
+                        ),
+                    )
+                ],
+            }
+        },
+        total_uk_interest=Decimal(0),
+        total_foreign_interest=Decimal(0),
+        show_unrealized_gains=False,
+        mixed_funds_log={},
+    )
+
+    assert report.total_dividend_taxes_in_tax_treaties_amount() == Decimal("20")
+    summary = report.dividend_summary_by_country()
+    assert list(summary) == ["Poland", "USA"]
+    assert summary["USA"].amount == Decimal("100")
+    assert summary["USA"].tax_paid == Decimal("15")
+    assert summary["USA"].treaty_allowance == Decimal("15")
+    assert summary["Poland"].amount == Decimal("50")
+    assert summary["Poland"].tax_paid == Decimal("9.5")
+    assert summary["Poland"].treaty_allowance == Decimal("5")
+    assert "Foreign dividends by country" in str(report)
+
+
+def _make_dividend_calculator(
+    date: datetime.date, currency: str
+) -> CapitalGainsCalculator:
+    """Build a minimal calculator for dividend treaty tests."""
+    currency_converter = CurrencyConverter(None, {date: {currency: Decimal(1)}})
+    price_fetcher = CurrentPriceFetcher(currency_converter, {}, {})
+    return CapitalGainsCalculator(
+        2026,
+        currency_converter,
+        IsinConverter(),
+        price_fetcher,
+        SpinOffHandler(),
+        InitialPrices(),
+        interest_fund_tickers=[],
+    )
+
+
+def _process_single_dividend(
+    calculator: CapitalGainsCalculator,
+    symbol: str,
+    date: datetime.date,
+    currency: str,
+    gross: Decimal,
+    withheld: Decimal,
+) -> Dividend:
+    """Process one dividend and return the resulting Dividend entry."""
+    calculator.dividend_list[(symbol, date)] += ForeignCurrencyAmount(gross, currency)
+    calculator.dividend_tax_list[(symbol, date)] += ForeignCurrencyAmount(
+        withheld, currency
+    )
+
+    calculator.process_dividends()
+
+    entries = calculator.calculation_log_yields[date][f"dividend${symbol}"]
+    assert len(entries) == 1
+    dividend = entries[0].dividend
+    assert dividend is not None
+    return dividend
+
+
+@pytest.mark.parametrize(
+    ("symbol", "isin", "gross", "withheld"),
+    [
+        # Real Fortuneo rows: 15% US tax at source + 12.8% prélèvement fiscal
+        # + 17.2% prélèvements sociaux. Withholding far above the treaty rate
+        # still credits exactly the treaty rate.
+        ("VTRS", "US92556V1061", Decimal("0.61"), Decimal("-0.26")),
+        ("PFE", "US7170811035", Decimal("20.07"), Decimal("-9.32")),
+    ],
+)
+def test_eur_dividend_of_us_security_applies_usa_treaty(
+    symbol: str, isin: str, gross: Decimal, withheld: Decimal
+) -> None:
+    """US securities in French custody credit 15% under the USA treaty."""
+
+    date = datetime.date(2026, 6, 18)
+    calculator = _make_dividend_calculator(date, "EUR")
+    calculator.isin_converter.data[isin] = {symbol}
+    calculator.isin_converter.validate_data()
+
+    dividend = _process_single_dividend(
+        calculator, symbol, date, "EUR", gross, withheld
+    )
+
+    assert dividend.tax_treaty is not None
+    # The dividend is US-source (SA106 country line), even via a French bank.
+    assert dividend.tax_treaty.country == "USA"
+    # Only the 15% treaty rate is creditable against UK tax.
+    assert dividend.tax_treaty_amount == gross * Decimal("0.15")
+
+
+def test_dividend_treaty_requires_known_isin() -> None:
+    """Without an ISIN the security country, hence the treaty, is unknown."""
+
+    date = datetime.date(2026, 6, 18)
+    calculator = _make_dividend_calculator(date, "USD")
+
+    dividend = _process_single_dividend(
+        calculator, "UNKNOWN", date, "USD", Decimal("100"), Decimal("-15")
+    )
+
+    assert dividend.tax_treaty is None
+
+
+def test_dividend_treaty_missing_for_unconfigured_country() -> None:
+    """A French security must not get a credit while FR is not configured."""
+
+    date = datetime.date(2026, 6, 18)
+    calculator = _make_dividend_calculator(date, "USD")
+    # TotalEnergies: French security, USD dividends at a US broker.
+    calculator.isin_converter.data["FR0000120271"] = {"TTE"}
+    calculator.isin_converter.validate_data()
+
+    dividend = _process_single_dividend(
+        calculator, "TTE", date, "USD", Decimal("100"), Decimal("-12.80")
+    )
+
+    assert dividend.tax_treaty is None
+
+
+def test_dividend_treaty_credit_denied_when_under_withheld() -> None:
+    """No credit when less than the treaty rate was actually withheld."""
+
+    date = datetime.date(2026, 6, 18)
+    calculator = _make_dividend_calculator(date, "USD")
+    calculator.isin_converter.data["US7170811035"] = {"PFE"}
+    calculator.isin_converter.validate_data()
+
+    # Only 5% withheld: crediting the 15% treaty rate would claim relief
+    # for tax that was never paid.
+    dividend = _process_single_dividend(
+        calculator, "PFE", date, "USD", Decimal("100"), Decimal("-5")
+    )
+
+    assert dividend.tax_treaty is None
 
 
 @pytest.mark.parametrize(
@@ -425,6 +629,105 @@ def test_bed_and_breakfast_zero_available_quantity_skip() -> None:
 
     second_match = datetime.date(2024, 3, 10)
     assert symbol not in calculator.bnb_list.get(second_match, {})
+
+
+def test_crypto_disposals_are_split_from_listed_securities() -> None:
+    """SA108 totals should separate cryptoassets from listed securities."""
+
+    currency_converter = CurrencyConverter(None, {})
+    price_fetcher = CurrentPriceFetcher(currency_converter, {}, {})
+    calculator = CapitalGainsCalculator(
+        2024,
+        currency_converter,
+        IsinConverter(),
+        price_fetcher,
+        SpinOffHandler(),
+        InitialPrices(),
+        interest_fund_tickers=[],
+    )
+
+    def gbp_transaction(
+        date: datetime.date,
+        action: ActionType,
+        symbol: str | None,
+        quantity: Decimal | None,
+        price: Decimal | None,
+        amount: Decimal,
+    ) -> BrokerTransaction:
+        return BrokerTransaction(
+            date=date,
+            action=action,
+            symbol=symbol,
+            description=f"{action} {symbol}",
+            quantity=quantity,
+            price=price,
+            fees=Decimal(0),
+            amount=amount,
+            currency="GBP",
+            broker="Test",
+        )
+
+    transactions = [
+        gbp_transaction(
+            datetime.date(2024, 4, 10),
+            ActionType.TRANSFER,
+            None,
+            None,
+            None,
+            Decimal(10000),
+        ),
+        # ETH is a cryptoasset by default; FOO is a listed security.
+        gbp_transaction(
+            datetime.date(2024, 5, 1),
+            ActionType.BUY,
+            "ETH",
+            Decimal(1),
+            Decimal(1000),
+            Decimal(-1000),
+        ),
+        gbp_transaction(
+            datetime.date(2024, 5, 1),
+            ActionType.BUY,
+            "FOO",
+            Decimal(10),
+            Decimal(100),
+            Decimal(-1000),
+        ),
+        gbp_transaction(
+            datetime.date(2024, 6, 1),
+            ActionType.SELL,
+            "ETH",
+            Decimal(1),
+            Decimal(1500),
+            Decimal(1500),
+        ),
+        gbp_transaction(
+            datetime.date(2024, 6, 1),
+            ActionType.SELL,
+            "FOO",
+            Decimal(10),
+            Decimal(120),
+            Decimal(1200),
+        ),
+    ]
+
+    report = get_report(calculator, transactions)
+
+    assert report.disposal_count == 2
+    assert report.crypto_totals.disposal_count == 1
+    assert report.crypto_totals.disposal_proceeds == Decimal(1500)
+    assert report.crypto_totals.allowable_costs == Decimal(1000)
+    assert report.crypto_totals.capital_gain == Decimal(500)
+    assert report.crypto_totals.capital_loss == Decimal(0)
+
+    listed = report.listed_totals
+    assert listed.disposal_count == 1
+    assert listed.disposal_proceeds == Decimal(1200)
+    assert listed.allowable_costs == Decimal(1000)
+    assert listed.capital_gain == Decimal(200)
+    assert listed.capital_loss == Decimal(0)
+
+    assert "Cryptoassets" in str(report)
 
 
 def test_run_with_example_files() -> None:

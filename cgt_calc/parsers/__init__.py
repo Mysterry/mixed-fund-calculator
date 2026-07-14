@@ -6,6 +6,7 @@ import logging
 from typing import TYPE_CHECKING
 
 from .eri import read_eri_transactions
+from .fortuneo import read_fortuneo_transactions
 from .freetrade import read_freetrade_transactions
 from .mssb import read_mssb_transactions
 from .raw import read_raw_transactions
@@ -33,6 +34,7 @@ def read_broker_transactions(
     trading212_transactions_folder: Path | None,
     mssb_transactions_folder: Path | None,
     sharesight_transactions_folder: Path | None,
+    fortuneo_transactions_file: Path | None,
     raw_transactions_file: Path | None,
     vanguard_transactions_file: Path | None,
     eri_raw_file: Path | None,
@@ -68,6 +70,11 @@ def read_broker_transactions(
         transactions += read_sharesight_transactions(sharesight_transactions_folder)
     else:
         LOGGER.debug("No Sharesight file provided")
+
+    if fortuneo_transactions_file is not None:
+        transactions += read_fortuneo_transactions(fortuneo_transactions_file)
+    else:
+        LOGGER.debug("No Fortuneo file provided")
 
     if raw_transactions_file is not None:
         transactions += read_raw_transactions(raw_transactions_file)

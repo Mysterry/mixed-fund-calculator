@@ -52,12 +52,28 @@ DIVIDEND_ALLOWANCES: Final[dict[int, int]] = {
 # Double taxation
 # =============================================================================
 
-# Country and treaty rates per country
+# Creditable dividend rates per country under UK double taxation treaties
 # https://www.gov.uk/hmrc-internal-manuals/double-taxation-relief
+# Keyed by the security's country (first two letters of its ISIN). The credit
+# is only claimed when at least treaty_rate of foreign tax was actually
+# withheld; any excess withholding (e.g. French levies stacked on top of the
+# 15% US tax at source by Fortuneo) is reclaimable from the withholding
+# country, not from HMRC.
 DIVIDEND_DOUBLE_TAXATION_RULES: Final[dict[str, TaxTreaty]] = {
-    "USD": TaxTreaty("USA", Decimal("0.15"), Decimal("0.15")),
-    "PLN": TaxTreaty("Poland", Decimal("0.19"), Decimal("0.1")),
+    "US": TaxTreaty("USA", Decimal("0.15")),
+    "PL": TaxTreaty("Poland", Decimal("0.1")),
 }
+
+
+# =============================================================================
+# Cryptoassets
+# =============================================================================
+
+# SA108 reports cryptoasset disposals separately from listed securities.
+# HMRC's definition (exchange/utility/security tokens) cannot be derived from
+# broker data, so classification is by ticker: these symbols, plus anything
+# passed via --crypto-tickers, are reported in the cryptoassets section.
+DEFAULT_CRYPTO_TICKERS: Final[frozenset[str]] = frozenset({"BTC", "ETH"})
 
 
 # =============================================================================

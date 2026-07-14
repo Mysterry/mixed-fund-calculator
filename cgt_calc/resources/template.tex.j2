@@ -209,9 +209,26 @@
 \subsection*{Number of acquisitions: \VAR{ acquisition_count.value }}
 \subsection*{Number of disposals: \VAR{ disposal_count.value }}
 \subsection*{Total disposal proceeds: £\VAR{ "{:,}".format(report.disposal_proceeds) }}
+\subsection*{Total allowable costs (including purchase price): £\VAR{ "{:,}".format(round_decimal(report.allowable_costs, 2)) }}
 \subsection*{Total capital gain before loss: £\VAR{ "{:,}".format(total_gain.value) }}
 \subsection*{Total capital loss: £\VAR{ "{:,}".format(total_loss.value) }}
 \subsection*{Total capital gain after loss: £\VAR{ "{:,}".format(total_gain.value - total_loss.value) }}
+\BLOCK{ if report.crypto_totals.disposal_count }
+\BLOCK{ set listed_totals = report.listed_totals }
+\subsection*{SA108 split: listed securities vs cryptoassets}
+\begin{itemize}
+\item Listed securities: \VAR{ listed_totals.disposal_count } disposals,
+    proceeds £\VAR{ "{:,}".format(round_decimal(listed_totals.disposal_proceeds, 2)) },
+    allowable costs £\VAR{ "{:,}".format(round_decimal(listed_totals.allowable_costs, 2)) },
+    gains in the year before losses £\VAR{ "{:,}".format(round_decimal(listed_totals.capital_gain, 2)) },
+    losses in the year £\VAR{ "{:,}".format(round_decimal(-listed_totals.capital_loss, 2)) }
+\item Cryptoassets: \VAR{ report.crypto_totals.disposal_count } disposals,
+    proceeds £\VAR{ "{:,}".format(round_decimal(report.crypto_totals.disposal_proceeds, 2)) },
+    allowable costs £\VAR{ "{:,}".format(round_decimal(report.crypto_totals.allowable_costs, 2)) },
+    gains in the year before losses £\VAR{ "{:,}".format(round_decimal(report.crypto_totals.capital_gain, 2)) },
+    losses in the year £\VAR{ "{:,}".format(round_decimal(-report.crypto_totals.capital_loss, 2)) }
+\end{itemize}
+\BLOCK{ endif }
 \vspace{2em}
 \section*{Overall - Dividends and Interests}
 \subsection*{Number of dividend distributions: \VAR{ dividend_count.value }}
@@ -230,6 +247,19 @@
 \subsubsection*{   (including £\VAR{ "{:,}".format(round_decimal(report.total_eri_amount(True), 2))} from excess reported income distributions)}
 \BLOCK{ endif }
 
+
+\BLOCK{ set dividend_country_summary = report.dividend_summary_by_country() }
+\BLOCK{ if dividend_country_summary }
+\subsection*{Foreign dividends by country}
+\begin{itemize}
+\BLOCK{ for country, summary in dividend_country_summary.items() }
+\item \VAR{ latex_safe(country) }:
+    dividends £\VAR{ "{:,}".format(round_decimal(summary.amount, 2)) },
+    foreign tax paid £\VAR{ "{:,}".format(round_decimal(summary.tax_paid, 2)) },
+    tax allowance from treaty £\VAR{ "{:,}".format(round_decimal(summary.treaty_allowance, 2)) }
+\BLOCK{ endfor }
+\end{itemize}
+\BLOCK{ endif }
 
 \BLOCK{ if report.trf_declarations }
 \clearpage

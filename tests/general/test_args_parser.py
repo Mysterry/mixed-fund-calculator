@@ -92,6 +92,7 @@ def test_output_rejects_whitespace_value() -> None:
     ("option", "attr", "filename"),
     [
         ("--freetrade-file", "freetrade_file", "freetrade.csv"),
+        ("--fortuneo-file", "fortuneo_file", "fortuneo.csv"),
         ("--raw-file", "raw_file", "raw.csv"),
         ("--schwab-file", "schwab_file", "schwab.csv"),
         ("--schwab-award-file", "schwab_award_file", "schwab_award.csv"),
@@ -120,6 +121,7 @@ def test_broker_file_arguments_accept_existing_path(
     ("option", "attr"),
     [
         ("--freetrade-file", "freetrade_file"),
+        ("--fortuneo-file", "fortuneo_file"),
         ("--raw-file", "raw_file"),
         ("--schwab-file", "schwab_file"),
         ("--schwab-award-file", "schwab_award_file"),

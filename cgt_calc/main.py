@@ -4,10 +4,12 @@
 from __future__ import annotations
 
 from collections import OrderedDict, defaultdict
+import dataclasses
 import datetime
 import decimal
 from decimal import Decimal
 import logging
+import re
 import sys
 from typing import TYPE_CHECKING
 
@@ -19,6 +21,7 @@ from .const import (
     BED_AND_BREAKFAST_DAYS,
     CAPITAL_GAIN_ALLOWANCES,
     DIVIDEND_ALLOWANCES,
+    DEFAULT_CRYPTO_TICKERS,
     DIVIDEND_DOUBLE_TAXATION_RULES,
     ERI_TAX_DATE_DELTA,
     INTERNAL_START_DATE,
@@ -46,6 +49,7 @@ from .model import (
     CalculationEntry,
     CalculationLog,
     CalculationType,
+    CgtAssetClassTotals,
     CapitalGainsReport,
     Dividend,
     ExcessReportedIncome,
@@ -60,6 +64,7 @@ from .model import (
     Position,
     RuleType,
     SpinOff,
+    TaxTreaty,
     MixedFund,
     ProcessedMixedFundTransaction,
     MixedFundsReport,
@@ -140,14 +145,14 @@ def _approx_equal_price_rounding(
     )
     if in_acceptable_range:
         return True
-    accptable_amount = approx_equal(amount_on_record, calculated_amount)
+    acceptable_amount = approx_equal(amount_on_record, calculated_amount)
     LOGGER.debug(
         "Amount amount_on_record %.6f vs calculated_amount %s in %s",
         amount_on_record,
         calculated_amount,
-        "acceptable range" if accptable_amount else "error",
+        "acceptable range" if acceptable_amount else "error",
     )
-    return accptable_amount
+    return acceptable_amount
 
 
 def _compute_remitted_tax_implications(
@@ -197,6 +202,7 @@ class CapitalGainsCalculator:
         spin_off_handler: SpinOffHandler,
         initial_prices: InitialPrices,
         interest_fund_tickers: list[str],
+        crypto_tickers: list[str] | None = None,
         tax_filings: TaxFilings | None = None,
         owr_events: list[OWREvent] | None = None,
         trf_handler: TRFHandler | None = None,
@@ -217,6 +223,7 @@ class CapitalGainsCalculator:
         self.balance_check = balance_check
         self.calc_unrealized_gains = calc_unrealized_gains
         self.interest_fund_tickers = interest_fund_tickers
+        self.crypto_tickers = DEFAULT_CRYPTO_TICKERS | set(crypto_tickers or [])
         self.tax_filings = tax_filings if tax_filings is not None else TaxFilings(OrderedDict(), None)
         self.owr_events = owr_events if owr_events is not None else []
         self.trf_handler = trf_handler or TRFHandler(None, prompt=False)
@@ -1430,6 +1437,36 @@ class CapitalGainsCalculator:
                 )
             ]
 
+    def _dividend_country_and_treaty(
+        self, symbol: str, *, taxed: bool
+    ) -> tuple[str, TaxTreaty | None]:
+        """Resolve the source country and treaty of a foreign dividend.
+
+        The security's country, from its ISIN prefix, determines both.
+        Lookup failures only warrant a warning when foreign tax was
+        withheld, since that is when a treaty credit is at stake.
+        """
+        log = LOGGER.warning if taxed else LOGGER.debug
+        isin = self.isin_converter.get_isin(symbol)
+        if isin is None:
+            log(
+                "Cannot determine the country of %s (unknown ISIN), "
+                "double taxation rules cannot be determined!",
+                symbol,
+            )
+            return "Unknown", None
+        country_code = isin[:2]
+        treaty = DIVIDEND_DOUBLE_TAXATION_RULES.get(country_code)
+        if treaty is None:
+            log(
+                "No dividend taxation treaty configured for %s securities "
+                "(ticker: %s), double taxation rules cannot be determined!",
+                country_code,
+                symbol,
+            )
+            return country_code, None
+        return treaty.country, treaty
+
     def process_dividends(self) -> None:
         """Process all dividends events and taxes.
 
@@ -1438,8 +1475,13 @@ class CapitalGainsCalculator:
         for (symbol, date), foreign_amount in self.dividend_list.items():
             tax = self.dividend_tax_list[(symbol, date)]
 
-            treaty = None
             is_interest_fund = symbol in self.interest_fund_tickers
+            country: str | None = None
+            treaty = None
+            if not is_interest_fund and foreign_amount.currency != UK_CURRENCY:
+                country, treaty = self._dividend_country_and_treaty(
+                    symbol, taxed=tax.amount < 0
+                )
             if tax.amount < 0:
                 if is_interest_fund:
                     LOGGER.warning(
@@ -1450,30 +1492,26 @@ class CapitalGainsCalculator:
                         f"Not matching currency for dividend {foreign_amount.currency} "
                         f"and its tax {tax.currency}"
                     )
-                    try:
-                        treaty = DIVIDEND_DOUBLE_TAXATION_RULES[foreign_amount.currency]
-                    except KeyError:
-                        LOGGER.warning(
-                            "Taxation treaty for %s country is missing (ticker: %s), "
-                            "double taxation rules cannot be determined!",
-                            foreign_amount.currency,
-                            symbol,
-                        )
-                        treaty = None
-                    else:
-                        assert treaty is not None
-                        expected_tax = treaty.country_rate * -foreign_amount.amount
-                        if not approx_equal(expected_tax, tax.amount):
+                    if treaty is not None:
+                        treaty_tax = treaty.treaty_rate * foreign_amount.amount
+                        # The credit is only valid if at least the treaty rate
+                        # was withheld; allow a cent of statement rounding.
+                        if -tax.amount < treaty_tax - Decimal("0.01"):
                             LOGGER.warning(
-                                "Determined double taxation treaty does not match the "
-                                "base taxation rules (expected %.2f base tax for %s "
-                                "but %.2f was deducted) for %s ticker!",
-                                expected_tax,
-                                treaty.country,
-                                tax.amount,
+                                "Only %.2f foreign tax was withheld on %s "
+                                "dividend of %.2f, less than the %s treaty "
+                                "rate amount of %.2f; not claiming the "
+                                "treaty credit!",
+                                -tax.amount,
                                 symbol,
+                                foreign_amount.amount,
+                                treaty.country,
+                                treaty_tax,
                             )
                             treaty = None
+            else:
+                # No foreign tax was withheld: there is nothing to credit.
+                treaty = None
 
             amount = self.currency_converter.to_gbp(
                 foreign_amount.amount, foreign_amount.currency, date, LOGGER
@@ -1490,6 +1528,7 @@ class CapitalGainsCalculator:
                     tax_at_source=tax_amount,
                     is_interest=is_interest_fund,
                     tax_treaty=treaty,
+                    country=country,
                 )
 
                 self.calculation_log_yields[date][f"dividend${symbol}"] = [
@@ -1520,6 +1559,9 @@ class CapitalGainsCalculator:
         allowable_costs = Decimal(0)
         capital_gain = Decimal(0)
         capital_loss = Decimal(0)
+        # SA108 reports cryptoasset disposals separately from listed
+        # securities; track their share of the totals above.
+        crypto_totals = CgtAssetClassTotals()
         self.portfolio.clear()
 
         calculation_log: CalculationLog = defaultdict(dict)
@@ -1615,6 +1657,23 @@ class CapitalGainsCalculator:
                         allowable_costs += (
                             transaction_disposal_proceeds - transaction_capital_gain
                         )
+                        if symbol in self.crypto_tickers:
+                            crypto_totals.disposal_count += 1
+                            crypto_totals.disposal_proceeds += (
+                                transaction_disposal_proceeds
+                            )
+                            crypto_totals.allowable_costs += (
+                                transaction_disposal_proceeds
+                                - transaction_capital_gain
+                            )
+                            if transaction_capital_gain > 0:
+                                crypto_totals.capital_gain += (
+                                    transaction_capital_gain
+                                )
+                            else:
+                                crypto_totals.capital_loss += (
+                                    transaction_capital_gain
+                                )
 
                         LOGGER.debug(
                             "[TAX YEAR CGT EVENT] Disposal on %s of %s, quantity %d leads to capital gain £%s",
@@ -2299,6 +2358,13 @@ class CapitalGainsCalculator:
             mixed_funds_log=mixed_funds_log,
             trf_declarations=trf_declarations,
             tax_filings=self.tax_filings,
+            crypto_totals=CgtAssetClassTotals(
+                disposal_count=crypto_totals.disposal_count,
+                disposal_proceeds=round_decimal(crypto_totals.disposal_proceeds, 2),
+                allowable_costs=round_decimal(crypto_totals.allowable_costs, 2),
+                capital_gain=round_decimal(crypto_totals.capital_gain, 2),
+                capital_loss=round_decimal(crypto_totals.capital_loss, 2),
+            ),
         )
 
     def calculate_mixed_fund_states(self) -> MixedFundsReport:
@@ -2341,6 +2407,7 @@ def calculate_cgt(args: argparse.Namespace) -> None:
         trading212_transactions_folder=args.trading212_dir,
         mssb_transactions_folder=args.mssb_dir,
         sharesight_transactions_folder=args.sharesight_dir,
+        fortuneo_transactions_file=args.fortuneo_file,
         raw_transactions_file=args.raw_file,
         vanguard_transactions_file=args.vanguard_file,
         eri_raw_file=args.eri_raw_file,
@@ -2365,8 +2432,9 @@ def calculate_cgt(args: argparse.Namespace) -> None:
         spin_off_handler,
         initial_prices,
         args.interest_fund_tickers,
-        tax_filings,
-        owr_events,
+        crypto_tickers=args.crypto_tickers,
+        tax_filings=tax_filings,
+        owr_events=owr_events,
         trf_handler=trf_handler,
         balance_check=args.balance_check,
         calc_unrealized_gains=args.calc_unrealized_gains,
@@ -2394,13 +2462,33 @@ def calculate_cgt(args: argparse.Namespace) -> None:
             is_mixed_fund=False
         )
 
-        if report.mixed_funds_log:
+        # One mixed fund report per broker: there is no cross-broker
+        # calculation, and per-broker files can be shared with HMRC
+        # selectively.
+        for broker, entries in report.mixed_funds_log.items():
+            if not entries:
+                # No mixed fund movement this tax year: the whole report
+                # would be empty boilerplate, don't generate it.
+                LOGGER.debug(
+                    "No mixed fund movements for %s this tax year, "
+                    "skipping its report",
+                    broker,
+                )
+                continue
+            broker_report = dataclasses.replace(
+                report, mixed_funds_log={broker: entries}
+            )
+            broker_slug = re.sub(r"\W+", "_", broker).strip("_")
+            broker_output = args.output_mixed_fund.with_name(
+                f"{args.output_mixed_fund.stem}_{broker_slug}"
+                f"{args.output_mixed_fund.suffix}"
+            )
             render_latex.render_pdf(
-            report,
-            output_path=args.output_mixed_fund,
-            skip_pdflatex=args.no_pdflatex,
-            is_mixed_fund=True
-        )
+                broker_report,
+                output_path=broker_output,
+                skip_pdflatex=args.no_pdflatex,
+                is_mixed_fund=True,
+            )
     print("All done!")
 
 

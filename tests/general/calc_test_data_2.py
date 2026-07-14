@@ -315,6 +315,8 @@ calc_basic_data_2 = [
                 date=datetime.date(day=20, month=5, year=2020),
                 symbol="BAR",
                 amount=10000,
+                # Synthetic US ISIN so the USA treaty applies to the dividend.
+                isin="US0000000010",
             ),
             dividend_tax_transaction(
                 date=datetime.date(day=20, month=5, year=2020),

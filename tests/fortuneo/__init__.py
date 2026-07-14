@@ -1,0 +1,1 @@
+"""Fortuneo tests."""

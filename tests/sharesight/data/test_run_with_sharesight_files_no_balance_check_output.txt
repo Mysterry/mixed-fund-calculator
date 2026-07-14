@@ -42,6 +42,8 @@ Total amount of dividends tax yearly allowance: £2000.00
 Total taxable dividends proceeds: £0.00
 Total UK interest proceeds: £0.00
 Total foreign interest proceeds: £0.00
+Foreign dividends by country:
+  USA: dividends £3.92, foreign tax paid £0.59, tax allowance from treaty £0.59
 REMITTANCE RESULTS PER MIXED FUND:
 Sharesight:
   Total remitted income: £0.00

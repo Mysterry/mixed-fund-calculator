@@ -34,10 +34,14 @@ class SpinOff:
 
 @dataclass
 class TaxTreaty:
-    """Class representing a treaty between UK and different countries."""
+    """Class representing a treaty between UK and different countries.
+
+    treaty_rate is the dividend rate creditable against UK tax under the
+    treaty. The credit is only claimed when at least that much foreign tax
+    was actually withheld.
+    """
 
     country: str
-    country_rate: Decimal
     treaty_rate: Decimal
 
 
@@ -173,7 +177,6 @@ class ActionType(Enum):
     SELL_OPTION = 22
     NRA_TAX_ADJ = 23
     BOOKKEEPING = 24
-    CASH_IN_LIEU = 25
 
 
 class CalculationType(Enum):
@@ -660,6 +663,9 @@ class Dividend:
     tax_at_source: Decimal
     is_interest: bool
     tax_treaty: TaxTreaty | None
+    # Source country of the dividend, set for foreign dividends even when no
+    # treaty credit applies ("Unknown" when the ISIN cannot be determined).
+    country: str | None = None
 
     @property
     def tax_treaty_amount(self) -> Decimal:
@@ -667,6 +673,26 @@ class Dividend:
         if self.tax_treaty is None:
             return Decimal(0)
         return self.amount * self.tax_treaty.treaty_rate
+
+
+@dataclass
+class DividendCountrySummary:
+    """Per-country foreign dividend totals."""
+
+    amount: Decimal = Decimal(0)
+    tax_paid: Decimal = Decimal(0)
+    treaty_allowance: Decimal = Decimal(0)
+
+
+@dataclass
+class CgtAssetClassTotals:
+    """CGT totals for one SA108 asset class."""
+
+    disposal_count: int = 0
+    disposal_proceeds: Decimal = Decimal(0)
+    allowable_costs: Decimal = Decimal(0)
+    capital_gain: Decimal = Decimal(0)
+    capital_loss: Decimal = Decimal(0)
 
 
 class CalculationEntry:
@@ -910,6 +936,9 @@ class CapitalGainsReport:
     mixed_funds_log: dict
     trf_declarations: list = field(default_factory=list)
     tax_filings: object = field(default=None, repr=False)
+    # SA108 reports cryptoasset disposals separately; the listed securities
+    # totals are derived as the remainder (see listed_totals).
+    crypto_totals: CgtAssetClassTotals = field(default_factory=CgtAssetClassTotals)
     mixed_funds_recap_log: dict[str, list[MixedFundEntry]] = field(init=False)
     mixed_funds_pre_post_2025_columns: dict[
         str, list[tuple[Period, MixedFundMoneyCategory]]
@@ -993,6 +1022,19 @@ class CapitalGainsReport:
             Decimal(0),
         )
 
+    @property
+    def listed_totals(self) -> CgtAssetClassTotals:
+        """CGT totals for everything that is not a cryptoasset."""
+        return CgtAssetClassTotals(
+            disposal_count=self.disposal_count - self.crypto_totals.disposal_count,
+            disposal_proceeds=(
+                self.disposal_proceeds - self.crypto_totals.disposal_proceeds
+            ),
+            allowable_costs=self.allowable_costs - self.crypto_totals.allowable_costs,
+            capital_gain=self.capital_gain - self.crypto_totals.capital_gain,
+            capital_loss=self.capital_loss - self.crypto_totals.capital_loss,
+        )
+
     def total_gain(self) -> Decimal:
         """Total capital gain."""
         return self.capital_gain + self.capital_loss
@@ -1030,14 +1072,31 @@ class CapitalGainsReport:
 
     def total_dividend_taxes_in_tax_treaties_amount(self) -> Decimal:
         """Total taxes to be reclaimed due to tax treaties."""
-        total = Decimal(0)
+        return sum(
+            (
+                summary.treaty_allowance
+                for summary in self.dividend_summary_by_country().values()
+            ),
+            Decimal(0),
+        )
+
+    def dividend_summary_by_country(self) -> dict[str, DividendCountrySummary]:
+        """Foreign dividends, tax paid and treaty allowance per country."""
+        by_country: defaultdict[str, DividendCountrySummary] = defaultdict(
+            DividendCountrySummary
+        )
         for item in self._filter_calculation_log(
             self.calculation_log_yields, RuleType.DIVIDEND
         ):
             assert item.dividend is not None
-            if not item.dividend.is_interest:
-                total += item.dividend.tax_treaty_amount
-        return total
+            dividend = item.dividend
+            if dividend.is_interest or dividend.country is None:
+                continue
+            summary = by_country[dividend.country]
+            summary.amount += dividend.amount
+            summary.tax_paid += -dividend.tax_at_source
+            summary.treaty_allowance += dividend.tax_treaty_amount
+        return dict(sorted(by_country.items()))
 
     def total_dividend_taxable_gain(self) -> Decimal:
         """Total taxable gain after all allowances."""
@@ -1378,6 +1437,20 @@ class CapitalGainsReport:
         out += f"Allowable costs: £{self.allowable_costs}\n"
         out += f"Capital gain: £{self.capital_gain}\n"
         out += f"Capital loss: £{-self.capital_loss}\n"
+        if self.crypto_totals.disposal_count:
+            out += "CGT split for SA108:\n"
+            for label, totals in (
+                ("Listed securities", self.listed_totals),
+                ("Cryptoassets", self.crypto_totals),
+            ):
+                out += (
+                    f"  {label}: {totals.disposal_count} disposals, "
+                    f"proceeds £{round_decimal(totals.disposal_proceeds, 2)}, "
+                    f"allowable costs £{round_decimal(totals.allowable_costs, 2)}, "
+                    "gains in the year before losses "
+                    f"£{round_decimal(totals.capital_gain, 2)}, "
+                    f"losses in the year £{round_decimal(-totals.capital_loss, 2)}\n"
+                )
         out += f"Total capital gain: £{self.total_gain()}\n"
         if self.capital_gain_allowance is not None:
             out += f"Taxable capital gain: £{self.taxable_gain()}\n"
@@ -1411,6 +1484,17 @@ class CapitalGainsReport:
             )
         out += f"Total UK interest proceeds: £{self.total_uk_interest}\n"
         out += f"Total foreign interest proceeds: £{self.total_foreign_interest}\n"
+
+        by_country = self.dividend_summary_by_country()
+        if by_country:
+            out += "Foreign dividends by country:\n"
+            for country, summary in by_country.items():
+                out += (
+                    f"  {country}: dividends £{round_decimal(summary.amount, 2)}, "
+                    f"foreign tax paid £{round_decimal(summary.tax_paid, 2)}, "
+                    "tax allowance from treaty "
+                    f"£{round_decimal(summary.treaty_allowance, 2)}\n"
+                )
 
         out += "REMITTANCE RESULTS PER MIXED FUND:\n"
         for broker in self.mixed_funds_log:
